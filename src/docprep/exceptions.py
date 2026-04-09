@@ -25,3 +25,7 @@ class SinkError(DocPrepError):
 
 class IngestError(DocPrepError):
     """Raised when the ingest pipeline encounters an error."""
+
+
+class ConfigError(DocPrepError):
+    """Raised when configuration is invalid or missing."""

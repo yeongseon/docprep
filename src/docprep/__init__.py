@@ -4,8 +4,10 @@ from __future__ import annotations
 
 __version__ = "0.0.1"
 
+from docprep.config import DocPrepConfig, load_config, load_discovered_config
 from docprep.exceptions import (
     ChunkError,
+    ConfigError,
     DocPrepError,
     IngestError,
     LoadError,
@@ -21,12 +23,16 @@ __all__ = [
     "build_vector_records",
     "Chunk",
     "ChunkError",
+    "ConfigError",
+    "DocPrepConfig",
     "DocPrepError",
     "Document",
     "ingest",
     "IngestError",
     "Ingestor",
     "IngestResult",
+    "load_config",
+    "load_discovered_config",
     "LoadError",
     "ParseError",
     "Section",
