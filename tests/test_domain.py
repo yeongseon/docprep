@@ -6,6 +6,7 @@ import uuid
 
 import pytest
 
+from docprep.metadata import Metadata
 from docprep.models.domain import Chunk, Document, IngestResult, Section, VectorRecord
 
 DomainDataclass: TypeAlias = (
@@ -98,3 +99,10 @@ def test_can_create_all_domain_objects_with_required_fields() -> None:
     assert document.title == "Example"
     assert record.metadata == {}
     assert result.documents == (document,)
+
+
+def test_metadata_fields_use_metadata_type_alias() -> None:
+    assert Document.__annotations__["frontmatter"] == "Metadata"
+    assert Document.__annotations__["source_metadata"] == "Metadata"
+    assert VectorRecord.__annotations__["metadata"] == "Metadata"
+    assert Metadata is not None

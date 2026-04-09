@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
-from docprep.exceptions import ParseError
+from docprep.exceptions import MetadataError, ParseError
 from docprep.ids import document_id
 from docprep.loaders.types import LoadedSource
 from docprep.parsers.markdown import MarkdownParser
@@ -60,6 +62,31 @@ def test_parser_returns_document_with_empty_sections_and_chunks() -> None:
     assert doc.sections == ()
     assert doc.chunks == ()
     assert doc.source_metadata == {"lang": "en"}
+
+
+def test_frontmatter_date_values_are_normalized_to_iso_strings() -> None:
+    doc = MarkdownParser().parse(_loaded_source("---\npublished: 2024-01-15\n---\nBody\n"))
+
+    assert doc.frontmatter["published"] == "2024-01-15"
+
+
+def test_parser_rejects_reserved_frontmatter_keys() -> None:
+    with pytest.raises(MetadataError, match=r"frontmatter\.docprep\.source_uri"):
+        _ = MarkdownParser().parse(_loaded_source("---\ndocprep.source_uri: hacked\n---\nBody\n"))
+
+
+def test_source_metadata_date_values_are_normalized() -> None:
+    source = LoadedSource(
+        source_path="docs/example.md",
+        source_uri="docs/example.md",
+        raw_text="Body",
+        checksum="checksum",
+        source_metadata={"published": date(2024, 1, 15)},
+    )
+
+    doc = MarkdownParser().parse(source)
+
+    assert doc.source_metadata == {"published": "2024-01-15"}
 
 
 def test_parse_raises_for_invalid_frontmatter() -> None:

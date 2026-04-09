@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from docprep.exceptions import SinkError
+from docprep.exceptions import MetadataError, SinkError
 from docprep.models.domain import Document
 from docprep.sinks.orm import Base, ChunkRow, DocumentRow, SectionRow, domain_to_row
 
@@ -54,7 +54,7 @@ class SQLAlchemySink:
                     row = domain_to_row(doc)
                     session.add(row)
 
-        except SinkError:
+        except (SinkError, MetadataError):
             raise
         except Exception as exc:
             raise SinkError(f"Failed to upsert documents: {exc}") from exc

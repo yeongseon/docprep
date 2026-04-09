@@ -29,3 +29,7 @@ class IngestError(DocPrepError):
 
 class ConfigError(DocPrepError):
     """Raised when configuration is invalid or missing."""
+
+
+class MetadataError(DocPrepError):
+    """Raised when metadata violates the docprep metadata contract."""

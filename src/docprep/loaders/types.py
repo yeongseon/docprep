@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -15,4 +14,4 @@ class LoadedSource:
     raw_text: str
     checksum: str
     media_type: str = "text/markdown"
-    source_metadata: dict[str, Any] = field(default_factory=dict)
+    source_metadata: dict[str, object] = field(default_factory=dict)

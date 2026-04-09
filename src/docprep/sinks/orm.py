@@ -87,10 +87,18 @@ class ChunkRow(Base):
 
 def domain_to_row(doc: object) -> DocumentRow:
     """Convert a domain Document to ORM rows (DocumentRow with nested children)."""
+    from docprep.metadata import normalize_metadata
     from docprep.models.domain import Document
 
     if not isinstance(doc, Document):
         raise TypeError(f"Expected Document, got {type(doc).__name__}")
+
+    normalized_fm = normalize_metadata(
+        doc.frontmatter, source=doc.source_uri, field_name="frontmatter"
+    )
+    normalized_sm = normalize_metadata(
+        doc.source_metadata, source=doc.source_uri, field_name="source_metadata"
+    )
 
     doc_row = DocumentRow(
         id=str(doc.id),
@@ -98,8 +106,8 @@ def domain_to_row(doc: object) -> DocumentRow:
         title=doc.title,
         source_checksum=doc.source_checksum,
         source_type=doc.source_type,
-        frontmatter=doc.frontmatter or None,
-        source_metadata=doc.source_metadata or None,
+        frontmatter=normalized_fm or None,
+        source_metadata=normalized_sm or None,
         body_markdown=doc.body_markdown,
         sections=[
             SectionRow(
@@ -134,7 +142,19 @@ def domain_to_row(doc: object) -> DocumentRow:
 
 def row_to_domain(row: DocumentRow) -> object:
     """Convert an ORM DocumentRow back to a domain Document."""
+    from docprep.metadata import normalize_metadata
     from docprep.models.domain import Chunk, Document, Section
+
+    fm = normalize_metadata(
+        dict(row.frontmatter) if row.frontmatter else None,
+        source=row.source_uri,
+        field_name="frontmatter",
+    )
+    source_meta = normalize_metadata(
+        dict(row.source_metadata) if row.source_metadata else None,
+        source=row.source_uri,
+        field_name="source_metadata",
+    )
 
     sections = tuple(
         Section(
@@ -171,8 +191,8 @@ def row_to_domain(row: DocumentRow) -> object:
         title=row.title,
         source_checksum=row.source_checksum,
         source_type=row.source_type,
-        frontmatter=dict(row.frontmatter) if row.frontmatter else {},
-        source_metadata=dict(row.source_metadata) if row.source_metadata else {},
+        frontmatter=fm,
+        source_metadata=source_meta,
         body_markdown=row.body_markdown,
         sections=sections,
         chunks=chunks,

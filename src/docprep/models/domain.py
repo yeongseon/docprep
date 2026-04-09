@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 import uuid
+
+from docprep.metadata import Metadata
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -45,8 +46,8 @@ class Document:
     title: str
     source_checksum: str
     source_type: str = "markdown"
-    frontmatter: dict[str, Any] = field(default_factory=dict)
-    source_metadata: dict[str, Any] = field(default_factory=dict)
+    frontmatter: Metadata = field(default_factory=dict)
+    source_metadata: Metadata = field(default_factory=dict)
     body_markdown: str = ""
     sections: tuple[Section, ...] = ()
     chunks: tuple[Chunk, ...] = ()
@@ -58,7 +59,7 @@ class VectorRecord:
 
     id: uuid.UUID
     text: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Metadata = field(default_factory=dict)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

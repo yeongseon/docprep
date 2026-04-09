@@ -11,11 +11,13 @@ from docprep.exceptions import (
     DocPrepError,
     IngestError,
     LoadError,
+    MetadataError,
     ParseError,
     SinkError,
 )
 from docprep.export import build_vector_records
 from docprep.ingest import Ingestor, ingest
+from docprep.metadata import Metadata
 from docprep.models.domain import Chunk, Document, IngestResult, Section, VectorRecord
 
 __all__ = [
@@ -34,6 +36,8 @@ __all__ = [
     "load_config",
     "load_discovered_config",
     "LoadError",
+    "Metadata",
+    "MetadataError",
     "ParseError",
     "Section",
     "SinkError",

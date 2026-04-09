@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from docprep.exceptions import SinkError
+from docprep.exceptions import MetadataError, SinkError
 from docprep.models.domain import Chunk, Document, Section
 from docprep.sinks.orm import DocumentRow, row_to_domain
 from docprep.sinks.sqlalchemy import SQLAlchemySink
@@ -112,3 +112,18 @@ def test_sink_error_is_raised_on_database_failure() -> None:
 
     with pytest.raises(SinkError, match="Failed to upsert documents"):
         _ = sink.upsert([_document()])
+
+
+def test_upsert_raises_metadata_error_for_reserved_keys() -> None:
+    engine = create_engine("sqlite://")
+    sink = SQLAlchemySink(engine=engine)
+    doc = Document(
+        id=uuid.uuid4(),
+        source_uri="docs/bad.md",
+        title="Bad",
+        source_checksum="checksum",
+        frontmatter={"docprep.source_uri": "smuggled"},
+    )
+
+    with pytest.raises(MetadataError, match="reserved prefix"):
+        _ = sink.upsert([doc])
