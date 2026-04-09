@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+import logging
 from pathlib import Path
+import uuid
 
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from typing_extensions import override
 
 from docprep.chunkers.heading import HeadingChunker
 from docprep.chunkers.size import SizeChunker
@@ -20,8 +24,9 @@ from docprep.exceptions import ConfigError, IngestError
 from docprep.ingest import Ingestor, ingest
 from docprep.loaders.protocol import Loader
 from docprep.loaders.types import LoadedSource
-from docprep.models.domain import Document
+from docprep.models.domain import Document, IngestStageReport, SinkUpsertResult
 from docprep.parsers.protocol import Parser
+from docprep.progress import IngestProgressEvent
 from docprep.sinks.orm import DocumentRow
 from docprep.sinks.sqlalchemy import SQLAlchemySink
 
@@ -36,6 +41,49 @@ class FailingParser:
         raise RuntimeError(f"bad parse: {loaded_source.source_uri}")
 
 
+class FailingChunker:
+    def chunk(self, document: Document) -> Document:
+        raise RuntimeError(f"bad chunk: {document.source_uri}")
+
+
+class CapturingHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+class RecordingSink:
+    def __init__(self, *, result: SinkUpsertResult | None = None) -> None:
+        self.result: SinkUpsertResult = result or SinkUpsertResult()
+        self.documents: tuple[Document, ...] = ()
+
+    def upsert(self, documents: Sequence[Document]) -> SinkUpsertResult:
+        self.documents = tuple(documents)
+        return self.result
+
+
+def _loaded_source(*, source_uri: str, raw_text: str = "# Title\n\nBody\n") -> LoadedSource:
+    return LoadedSource(
+        source_path=source_uri,
+        source_uri=source_uri,
+        raw_text=raw_text,
+        checksum=f"checksum-{source_uri}",
+    )
+
+
+def _document_from_loaded_source(loaded_source: LoadedSource) -> Document:
+    return Document(
+        id=uuid.uuid4(),
+        source_uri=loaded_source.source_uri,
+        title=Path(loaded_source.source_uri).stem,
+        source_checksum=loaded_source.checksum,
+    )
+
+
 def test_ingestor_with_defaults_processes_markdown_file(tmp_path: Path) -> None:
     path = tmp_path / "guide.md"
     _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
@@ -46,6 +94,8 @@ def test_ingestor_with_defaults_processes_markdown_file(tmp_path: Path) -> None:
     assert result.documents[0].title == "Title"
     assert len(result.documents[0].sections) == 1
     assert result.documents[0].chunks == ()
+    assert result.processed_count == 1
+    assert result.failed_count == 0
 
 
 def test_ingestor_with_sink_persists_documents(tmp_path: Path) -> None:
@@ -58,6 +108,9 @@ def test_ingestor_with_sink_persists_documents(tmp_path: Path) -> None:
 
     assert result.persisted is True
     assert result.sink_name == "SQLAlchemySink"
+    assert result.updated_count == 1
+    assert result.updated_source_uris == (path.as_posix(),)
+    assert result.skipped_source_uris == ()
     with Session(engine) as session:
         assert session.execute(select(DocumentRow)).scalar_one().title == "Title"
 
@@ -80,6 +133,7 @@ def test_ingest_convenience_function_works(tmp_path: Path) -> None:
 
     assert len(result.documents) == 1
     assert result.documents[0].source_uri == path.as_posix()
+    assert result.processed_count == 1
 
 
 def test_ingest_error_is_raised_for_load_failure(tmp_path: Path) -> None:
@@ -87,23 +141,66 @@ def test_ingest_error_is_raised_for_load_failure(tmp_path: Path) -> None:
         _ = Ingestor(loader=FailingLoader()).run(tmp_path)
 
 
-def test_ingest_error_is_raised_for_parse_failure(tmp_path: Path) -> None:
-    loaded_source = LoadedSource(
-        source_path="docs/example.md",
-        source_uri="docs/example.md",
-        raw_text="Body",
-        checksum="checksum",
-    )
+def test_ingestor_continues_after_parse_failure(tmp_path: Path) -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md", raw_text="Body")
+    other_source = _loaded_source(source_uri="docs/other.md")
 
     class SingleLoader:
         def load(self, source: str | Path) -> list[LoadedSource]:
             del source
-            return [loaded_source]
+            return [loaded_source, other_source]
+
+    class SometimesFailingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            if loaded_source.source_uri == "docs/example.md":
+                raise RuntimeError(f"bad parse: {loaded_source.source_uri}")
+            return _document_from_loaded_source(loaded_source)
 
     assert isinstance(SingleLoader(), Loader)
-    assert isinstance(FailingParser(), Parser)
-    with pytest.raises(IngestError, match="Processing failed"):
-        _ = Ingestor(loader=SingleLoader(), parser=FailingParser()).run(tmp_path)
+    assert isinstance(SometimesFailingParser(), Parser)
+
+    ingestor = Ingestor(
+        loader=SingleLoader(), parser=SometimesFailingParser(), chunkers=[],
+    )
+    result = ingestor.run(tmp_path)
+
+    assert len(result.documents) == 1
+    assert result.documents[0].source_uri == "docs/other.md"
+    assert result.processed_count == 1
+    assert result.failed_count == 1
+    assert result.failed_source_uris == ("docs/example.md",)
+
+
+def test_ingestor_continues_after_chunk_failure(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/example.md")
+    second_source = _loaded_source(source_uri="docs/other.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    class SometimesFailingChunker:
+        def chunk(self, document: Document) -> Document:
+            if document.source_uri == "docs/example.md":
+                raise RuntimeError(f"bad chunk: {document.source_uri}")
+            return document
+
+    result = Ingestor(
+        loader=SingleLoader(),
+        parser=PassthroughParser(),
+        chunkers=[SometimesFailingChunker()],
+    ).run(tmp_path)
+
+    assert len(result.documents) == 1
+    assert result.documents[0].source_uri == "docs/other.md"
+    assert result.processed_count == 1
+    assert result.failed_count == 1
+    assert result.failed_source_uris == ("docs/example.md",)
 
 
 def test_ingestor_with_config_builds_and_runs_pipeline(tmp_path: Path) -> None:
@@ -128,6 +225,8 @@ def test_ingestor_with_config_builds_and_runs_pipeline(tmp_path: Path) -> None:
     assert len(result.documents) == 1
     assert len(result.documents[0].sections) == 1
     assert len(result.documents[0].chunks) == 2
+    assert result.processed_count == 1
+    assert result.updated_count == 1
 
 
 def test_ingestor_uses_config_source_when_run_source_is_none(tmp_path: Path) -> None:
@@ -194,6 +293,7 @@ def test_ingestor_with_configured_sqlalchemy_sink_persists_documents(tmp_path: P
     ).run()
 
     assert result.persisted is True
+    assert result.updated_count == 1
     with Session(engine) as session:
         assert session.execute(select(DocumentRow)).scalar_one().title == "Title"
 
@@ -224,3 +324,247 @@ def test_explicit_parser_overrides_config_parser(tmp_path: Path) -> None:
     result = Ingestor(config=config, parser=MarkdownParser()).run(path)
 
     assert len(result.documents) == 1
+
+
+def test_ingestor_emits_progress_events() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+    events: list[IngestProgressEvent] = []
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    sink = RecordingSink(
+        result=SinkUpsertResult(
+            skipped_source_uris=(loaded_source.source_uri,),
+            updated_source_uris=(loaded_source.source_uri,),
+        )
+    )
+
+    result = Ingestor(
+        loader=SingleLoader(),
+        parser=PassthroughParser(),
+        chunkers=[],
+        sink=sink,
+        progress_callback=events.append,
+    ).run("ignored")
+
+    assert result.processed_count == 1
+    assert [(event.stage, event.event) for event in events] == [
+        ("run", "started"),
+        ("load", "started"),
+        ("load", "completed"),
+        ("parse", "started"),
+        ("parse", "completed"),
+        ("chunk", "started"),
+        ("chunk", "completed"),
+        ("sink", "started"),
+        ("sink", "skipped"),
+        ("sink", "updated"),
+        ("sink", "completed"),
+        ("run", "completed"),
+    ]
+
+
+def test_ingestor_uses_custom_logger() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    handler = CapturingHandler()
+    logger = logging.getLogger("test.docprep.ingest")
+    logger.handlers.clear()
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+
+    try:
+        ingestor = Ingestor(
+            loader=SingleLoader(), parser=PassthroughParser(), chunkers=[], logger=logger,
+        )
+        _ = ingestor.run("ignored")
+    finally:
+        logger.removeHandler(handler)
+
+    assert [record.getMessage() for record in handler.records] == [
+        "Loaded 1 source(s)",
+        "Parsed docs/example.md: 0 section(s)",
+        "Run completed: 1 processed, 0 failed",
+    ]
+
+
+def test_ingestor_result_contains_stage_reports() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    result = Ingestor(loader=SingleLoader(), parser=PassthroughParser(), chunkers=[]).run("ignored")
+
+    stages = tuple(report.stage for report in result.stage_reports)
+    assert stages == ("load", "parse", "chunk", "run")
+    assert all(isinstance(report, IngestStageReport) for report in result.stage_reports)
+
+
+def test_ingestor_result_contains_expanded_counts() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    sink = RecordingSink(
+        result=SinkUpsertResult(
+            skipped_source_uris=(loaded_source.source_uri,),
+            updated_source_uris=(),
+            deleted_source_uris=(),
+        )
+    )
+
+    ingestor = Ingestor(
+        loader=SingleLoader(), parser=PassthroughParser(), chunkers=[], sink=sink,
+    )
+    result = ingestor.run("ignored")
+
+    assert result.processed_count == 1
+    assert result.skipped_count == 1
+    assert result.updated_count == 0
+    assert result.deleted_count == 0
+    assert result.failed_count == 0
+    assert result.skipped_source_uris == (loaded_source.source_uri,)
+    assert result.updated_source_uris == ()
+    assert result.deleted_source_uris == ()
+    assert result.failed_source_uris == ()
+
+
+def test_ingest_convenience_function_accepts_logger_and_progress_callback() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+    events: list[IngestProgressEvent] = []
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    handler = CapturingHandler()
+    logger = logging.getLogger("test.docprep.ingest.convenience")
+    logger.handlers.clear()
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+
+    try:
+        result = ingest(
+            "ignored",
+            loader=SingleLoader(),
+            parser=PassthroughParser(),
+            chunkers=[],
+            logger=logger,
+            progress_callback=events.append,
+        )
+    finally:
+        logger.removeHandler(handler)
+
+    assert result.processed_count == 1
+    assert events[0] == IngestProgressEvent(stage="run", event="started")
+    assert handler.records[-1].getMessage() == "Run completed: 1 processed, 0 failed"
+
+
+def test_progress_callback_failure_raises_ingest_error() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    def failing_callback(event: IngestProgressEvent) -> None:
+        if event.stage == "parse" and event.event == "started":
+            raise ValueError("callback boom")
+
+    with pytest.raises(IngestError, match="Progress callback failed"):
+        Ingestor(
+            loader=SingleLoader(),
+            parser=PassthroughParser(),
+            chunkers=[],
+            progress_callback=failing_callback,
+        ).run("ignored")
+
+
+def test_load_failure_emits_run_failed_progress_event() -> None:
+    events: list[IngestProgressEvent] = []
+
+    with pytest.raises(IngestError, match="Loading failed"):
+        Ingestor(
+            loader=FailingLoader(),
+            progress_callback=events.append,
+        ).run("ignored")
+
+    stage_events = [(e.stage, e.event) for e in events]
+    assert ("load", "failed") in stage_events
+    assert ("run", "failed") in stage_events
+    run_failed = [e for e in events if e.stage == "run" and e.event == "failed"]
+    assert len(run_failed) == 1
+    assert run_failed[0].error_type == "RuntimeError"
+
+
+def test_sink_failure_emits_run_failed_progress_event() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+    events: list[IngestProgressEvent] = []
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    class FailingSink:
+        def upsert(self, documents: Sequence[Document]) -> SinkUpsertResult:
+            raise RuntimeError("sink boom")
+
+    with pytest.raises(IngestError, match="Sink failed"):
+        Ingestor(
+            loader=SingleLoader(),
+            parser=PassthroughParser(),
+            chunkers=[],
+            sink=FailingSink(),
+            progress_callback=events.append,
+        ).run("ignored")
+
+    stage_events = [(e.stage, e.event) for e in events]
+    assert ("sink", "failed") in stage_events
+    assert ("run", "failed") in stage_events

@@ -14,10 +14,21 @@ def format_ingest_result(result: IngestResult, *, as_json: bool = False) -> str:
 
     lines: list[str] = []
     lines.append(f"Ingested {len(result.documents)} document(s)")
-    if result.skipped_source_uris:
-        lines.append(f"Skipped (unchanged): {len(result.skipped_source_uris)}")
+    lines.append(f"  Processed: {result.processed_count}")
+    if result.updated_count:
+        lines.append(f"  Updated: {result.updated_count}")
+    if result.skipped_count:
+        lines.append(f"  Skipped (unchanged): {result.skipped_count}")
+    if result.failed_count:
+        lines.append(f"  Failed: {result.failed_count}")
+    if result.deleted_count:
+        lines.append(f"  Deleted: {result.deleted_count}")
     if result.persisted:
         lines.append(f"Persisted via: {result.sink_name}")
+    if result.stage_reports:
+        lines.append("Stage timings:")
+        for report in result.stage_reports:
+            lines.append(f"  {report.stage}: {report.elapsed_ms:.1f}ms")
     return "\n".join(lines)
 
 
@@ -51,12 +62,32 @@ def format_stats(stats: dict[str, int], *, as_json: bool = False) -> str:
 
 
 def _ingest_result_to_dict(result: IngestResult) -> dict[str, Any]:
-    return {
+    data: dict[str, Any] = {
         "documents_count": len(result.documents),
+        "processed_count": result.processed_count,
+        "updated_count": result.updated_count,
+        "skipped_count": result.skipped_count,
+        "failed_count": result.failed_count,
+        "deleted_count": result.deleted_count,
         "skipped_source_uris": list(result.skipped_source_uris),
+        "updated_source_uris": list(result.updated_source_uris),
+        "failed_source_uris": list(result.failed_source_uris),
+        "deleted_source_uris": list(result.deleted_source_uris),
         "persisted": result.persisted,
         "sink_name": result.sink_name,
     }
+    if result.stage_reports:
+        data["stage_reports"] = [
+            {
+                "stage": r.stage,
+                "elapsed_ms": round(r.elapsed_ms, 2),
+                "input_count": r.input_count,
+                "output_count": r.output_count,
+                "failed_count": r.failed_count,
+            }
+            for r in result.stage_reports
+        ]
+    return data
 
 
 def _document_preview_dict(doc: Document) -> dict[str, Any]:

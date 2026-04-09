@@ -14,6 +14,14 @@ from docprep.cli import main as cli_main
 from docprep.exceptions import DocPrepError
 
 
+def _reset_ingest_logger() -> None:
+    import logging
+
+    logger = logging.getLogger("docprep.ingest")
+    logger.handlers.clear()
+    logger.setLevel(logging.NOTSET)
+
+
 def test_help_exits_with_zero(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         _ = cli_main.main(["--help"])
@@ -35,6 +43,7 @@ def test_version_shows_version(capsys: pytest.CaptureFixture[str]) -> None:
 def test_ingest_command_with_temp_file_works(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _reset_ingest_logger()
     path = tmp_path / "guide.md"
     db_path = tmp_path / "docs.db"
     _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
@@ -64,6 +73,7 @@ def test_preview_command_with_temp_file_works(
 def test_stats_command_with_temp_db_works(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _reset_ingest_logger()
     path = tmp_path / "guide.md"
     db_path = tmp_path / "docs.db"
     _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
@@ -115,6 +125,7 @@ def test_python_m_entrypoint_raises_system_exit(monkeypatch: pytest.MonkeyPatch)
 def test_ingest_command_with_config_flag_uses_config_source(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _reset_ingest_logger()
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
     _ = (docs_dir / "guide.md").write_text("# Title\n\nBody\n", encoding="utf-8")
@@ -131,6 +142,7 @@ def test_ingest_command_with_config_flag_uses_config_source(
 def test_cli_source_overrides_config_source(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _reset_ingest_logger()
     config_docs = tmp_path / "config-docs"
     config_docs.mkdir()
     _ = (config_docs / "config.md").write_text("# Config Title\n\nBody\n", encoding="utf-8")
@@ -174,6 +186,7 @@ def test_no_json_flag_overrides_config_json_true(
 def test_config_driven_ingest_without_positional_source(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _reset_ingest_logger()
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
     _ = (docs_dir / "guide.md").write_text("# Title\n\nBody\n", encoding="utf-8")
@@ -193,6 +206,7 @@ def test_config_driven_ingest_without_positional_source(
 def test_config_driven_stats_without_positional_db(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    _reset_ingest_logger()
     path = tmp_path / "guide.md"
     db_path = tmp_path / "docs.db"
     _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
@@ -217,6 +231,7 @@ def test_config_driven_stats_without_positional_db(
 def test_cli_reports_error_when_config_file_does_not_exist(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    _reset_ingest_logger()
     exit_code = cli_main.main(["ingest", "--config", "/nonexistent/docprep.toml"])
 
     captured = capsys.readouterr()
@@ -227,6 +242,7 @@ def test_cli_reports_error_when_config_file_does_not_exist(
 def test_cli_reports_error_when_source_and_config_are_missing(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    _reset_ingest_logger()
     exit_code = cli_main.main(["ingest"])
 
     captured = capsys.readouterr()
@@ -250,3 +266,64 @@ def test_cli_auto_discovers_config_from_parent_directory(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "Document: Title" in captured.out
+
+
+def test_ingest_command_uses_human_log_format_by_default(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _reset_ingest_logger()
+    path = tmp_path / "guide.md"
+    _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
+
+    exit_code = cli_main.main(["ingest", str(path), "--log-format", "human"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "[info] [load] Loaded 1 source(s)" in captured.err
+    assert "[info] [run] Run completed: 1 processed, 0 failed" in captured.err
+
+
+def test_ingest_command_uses_json_log_format(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _reset_ingest_logger()
+    path = tmp_path / "guide.md"
+    _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
+
+    exit_code = cli_main.main(["ingest", str(path), "--log-format", "json"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    entries = [json.loads(line) for line in captured.err.splitlines() if line.strip()]
+    assert entries[0]["level"] == "info"
+    assert entries[0]["stage"] == "load"
+    assert entries[-1]["stage"] == "run"
+    assert entries[-1]["processed_count"] == 1
+
+
+def test_ingest_command_uses_debug_log_level(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _reset_ingest_logger()
+    path = tmp_path / "guide.md"
+    _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
+
+    exit_code = cli_main.main(["ingest", str(path), "--log-level", "debug"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Parsed " in captured.err
+
+
+def test_ingest_command_uses_error_log_level(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _reset_ingest_logger()
+    path = tmp_path / "guide.md"
+    _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
+
+    exit_code = cli_main.main(["ingest", str(path), "--log-level", "error"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.err == ""

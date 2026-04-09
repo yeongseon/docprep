@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 import uuid
 
 from docprep.metadata import Metadata
@@ -63,10 +64,39 @@ class VectorRecord:
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
+class SinkUpsertResult:
+    """Result of a sink upsert operation with classified outcomes."""
+
+    skipped_source_uris: tuple[str, ...] = ()
+    updated_source_uris: tuple[str, ...] = ()
+    deleted_source_uris: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class IngestStageReport:
+    """Timing and counts for a single pipeline stage."""
+
+    stage: Literal["load", "parse", "chunk", "sink", "run"]
+    elapsed_ms: float
+    input_count: int = 0
+    output_count: int = 0
+    failed_count: int = 0
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class IngestResult:
     """Summary of an ingest pipeline run."""
 
     documents: tuple[Document, ...]
+    processed_count: int = 0
+    skipped_count: int = 0
+    updated_count: int = 0
+    deleted_count: int = 0
+    failed_count: int = 0
     skipped_source_uris: tuple[str, ...] = ()
+    updated_source_uris: tuple[str, ...] = ()
+    deleted_source_uris: tuple[str, ...] = ()
+    failed_source_uris: tuple[str, ...] = ()
+    stage_reports: tuple[IngestStageReport, ...] = ()
     persisted: bool = False
     sink_name: str | None = None

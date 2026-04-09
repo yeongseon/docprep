@@ -52,6 +52,20 @@ def _add_ingest_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     _add_config_arg(p)
     p.add_argument("source", nargs="?", default=None, help="File or directory path to ingest")
     p.add_argument("--db", default=None, help="SQLAlchemy database URL (e.g. sqlite:///docs.db)")
+    p.add_argument(
+        "--log-format",
+        choices=["human", "json"],
+        default="human",
+        dest="log_format",
+        help="Log output format (default: human)",
+    )
+    p.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error", "critical"],
+        default="info",
+        dest="log_level",
+        help="Log verbosity level (default: info)",
+    )
     _add_json_group(p)
 
 
@@ -77,7 +91,6 @@ def _load_cli_config(args: argparse.Namespace) -> None:
 
 
 def _resolve_json(args: argparse.Namespace) -> bool:
-    # CLI flag > config > False
     as_json: bool | None = args.as_json
     if as_json is not None:
         return as_json
@@ -88,6 +101,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     from docprep.chunkers.heading import HeadingChunker
     from docprep.chunkers.size import SizeChunker
     from docprep.cli.formatters import format_ingest_result
+    from docprep.cli.logging import setup_cli_logger
     from docprep.config import DocPrepConfig
     from docprep.ingest import Ingestor
     from docprep.registry import build_chunkers, build_loader, build_parser
@@ -96,17 +110,19 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     config: DocPrepConfig = args.docprep_config
     as_json = _resolve_json(args)
 
-    # Build components: explicit CLI args > config > defaults
+    logger = setup_cli_logger(
+        log_format=args.log_format,
+        log_level=args.log_level,
+    )
+
     loader = build_loader(config.loader) if config.loader else None
     parser = build_parser(config.parser) if config.parser else None
 
-    # Chunkers: config chunkers or CLI defaults (HeadingChunker + SizeChunker)
     if config.chunkers is not None:
         chunkers_list = list(build_chunkers(config.chunkers))
     else:
         chunkers_list = [HeadingChunker(), SizeChunker()]
 
-    # Sink: CLI --db > config sink
     sink = None
     db_url = args.db
     if db_url is None and config.sink is not None:
@@ -120,7 +136,6 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         engine = create_engine(db_url)
         sink = SQLAlchemySink(engine=engine, create_tables=create_tables)
 
-    # Source: CLI positional > config source
     source = args.source
     if source is None:
         resolved = config.resolved_source()
@@ -132,7 +147,8 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
             )
         source = resolved
 
-    ingestor = Ingestor(loader=loader, parser=parser, chunkers=chunkers_list, sink=sink)
+    ingestor = Ingestor(loader=loader, parser=parser, chunkers=chunkers_list, sink=sink,
+                        logger=logger)
     result = ingestor.run(source)
     print(format_ingest_result(result, as_json=as_json))
     return 0

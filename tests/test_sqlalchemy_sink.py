@@ -50,9 +50,10 @@ def test_upsert_new_document_persists_correctly() -> None:
     sink = SQLAlchemySink(engine=engine)
     document = _document()
 
-    skipped = sink.upsert([document])
+    result = sink.upsert([document])
 
-    assert skipped == ()
+    assert result.skipped_source_uris == ()
+    assert result.updated_source_uris == (document.source_uri,)
     with Session(engine) as session:
         row = session.execute(select(DocumentRow)).scalar_one()
         assert row_to_domain(row) == document
@@ -64,9 +65,10 @@ def test_upsert_existing_unchanged_document_returns_skipped_uri() -> None:
     document = _document()
     _ = sink.upsert([document])
 
-    skipped = sink.upsert([document])
+    result = sink.upsert([document])
 
-    assert skipped == (document.source_uri,)
+    assert result.skipped_source_uris == (document.source_uri,)
+    assert result.updated_source_uris == ()
 
 
 def test_upsert_existing_changed_document_replaces_it() -> None:
@@ -85,7 +87,10 @@ def test_upsert_existing_changed_document_replaces_it() -> None:
     )
     _ = sink.upsert([original])
 
-    _ = sink.upsert([updated])
+    result = sink.upsert([updated])
+
+    assert result.skipped_source_uris == ()
+    assert result.updated_source_uris == (original.source_uri,)
 
     with Session(engine) as session:
         rows = session.execute(select(DocumentRow)).scalars().all()

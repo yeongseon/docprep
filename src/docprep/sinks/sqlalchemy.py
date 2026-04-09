@@ -9,7 +9,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from docprep.exceptions import MetadataError, SinkError
-from docprep.models.domain import Document
+from docprep.models.domain import Document, SinkUpsertResult
 from docprep.sinks.orm import Base, ChunkRow, DocumentRow, SectionRow, domain_to_row
 
 
@@ -28,13 +28,14 @@ class SQLAlchemySink:
         if create_tables:
             Base.metadata.create_all(engine)
 
-    def upsert(self, documents: Sequence[Document]) -> tuple[str, ...]:
-        """Persist documents, skipping those with unchanged checksums.
+    def upsert(self, documents: Sequence[Document]) -> SinkUpsertResult:
+        """Persist documents, classifying results as skipped or updated.
 
-        Returns source URIs that were skipped (checksum match).
+        Skipped = checksum unchanged, Updated = new or changed checksum.
         All writes happen in a single transaction.
         """
         skipped: list[str] = []
+        updated: list[str] = []
 
         try:
             with Session(self._engine) as session, session.begin():
@@ -53,13 +54,17 @@ class SQLAlchemySink:
 
                     row = domain_to_row(doc)
                     session.add(row)
+                    updated.append(doc.source_uri)
 
         except (SinkError, MetadataError):
             raise
         except Exception as exc:
             raise SinkError(f"Failed to upsert documents: {exc}") from exc
 
-        return tuple(skipped)
+        return SinkUpsertResult(
+            skipped_source_uris=tuple(skipped),
+            updated_source_uris=tuple(updated),
+        )
 
     def stats(self) -> Stats:
         with Session(self._engine) as session:
