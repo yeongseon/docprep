@@ -1,0 +1,126 @@
+[project]
+name = "docprep"
+description = "Prepare documents into structured, vector-ready data"
+keywords = ["document", "ingestion", "chunking", "markdown", "vector", "rag", "nlp", "pipeline"]
+authors = [{ name = "Yeongseon Choe", email = "yeongseon.choe@gmail.com" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dynamic = ["version"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "markdown-it-py>=3.0,<4.0",
+    "mdit-py-plugins>=0.4,<1.0",
+    "python-frontmatter>=1.1,<2.0",
+    "sqlalchemy>=2.0,<3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yeongseon/docprep"
+Repository = "https://github.com/yeongseon/docprep"
+Issues = "https://github.com/yeongseon/docprep/issues"
+
+[project.scripts]
+docprep = "docprep.cli.main:main"
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1,<4.0"]
+dev = [
+    "bandit[toml]>=1.7,<2.0",
+    "build",
+    "coverage",
+    "git-cliff",
+    "hatch",
+    "mypy>=1.10,<2.0",
+    "pre-commit>=3.7,<5.0",
+    "pytest>=8.0,<9.0",
+    "pytest-cov>=5.0,<6.0",
+    "ruff>=0.6,<1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+sources = ["src"]
+
+[tool.hatch.build.targets.wheel]
+
+[tool.hatch.version]
+path = "src/docprep/__init__.py"
+
+[tool.hatch.publish.index]
+default = "pypi"
+
+[tool.hatch.publish.index.repos.pypi]
+url = "https://upload.pypi.org/legacy/"
+
+[tool.hatch.publish.index.repos.test]
+url = "https://test.pypi.org/legacy/"
+
+[tool.hatch.envs.default]
+python = "3.11"
+features = ["dev"]
+
+[tool.hatch.envs.default.scripts]
+format = "ruff format src tests"
+style = "ruff check src tests"
+typecheck = "mypy src tests"
+lint = "hatch run style && hatch run typecheck"
+test = "pytest -v tests"
+cov = "pytest --cov-report=term-missing --cov-report=html --cov-report=xml tests/"
+precommit = "pre-commit run --all-files"
+precommit-install = "pre-commit install"
+security = "python -m bandit -r src"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+fixable = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["docprep"]
+force-sort-within-sections = true
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+show_error_codes = true
+pretty = true
+
+[tool.pytest.ini_options]
+addopts = "--cov=src/docprep --cov-report=xml --cov-report=term-missing -ra -q"
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.coverage.run]
+branch = true
+source = ["src/docprep"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+skip_covered = true
+
+[tool.bandit]
+exclude_dirs = ["tests"]
