@@ -37,6 +37,13 @@ class ErrorMode(StrEnum):  # pyright: ignore[reportUntypedBaseClass]
     CONTINUE_ON_ERROR = "continue_on_error"
 
 
+@final
+class StructureKind(StrEnum):  # pyright: ignore[reportUntypedBaseClass]
+    CODE_FENCE = "code_fence"
+    TABLE = "table"
+    LIST = "list"
+
+
 @dataclass(frozen=True, kw_only=True, slots=True)
 class Section:
     """A heading-delimited section within a document."""
@@ -71,6 +78,7 @@ class Chunk:
     token_count: int | None = None
     heading_path: tuple[str, ...] = ()
     lineage: tuple[str, ...] = ()
+    structure_types: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -79,6 +87,15 @@ class DocumentError:
     stage: PipelineStage
     error_type: str
     message: str
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class StructuralAnnotation:
+    """A structural element span within body_markdown."""
+
+    kind: StructureKind
+    char_start: int
+    char_end: int
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -93,6 +110,7 @@ class Document:
     frontmatter: Metadata = field(default_factory=dict)
     source_metadata: Metadata = field(default_factory=dict)
     body_markdown: str = ""
+    structural_annotations: tuple[StructuralAnnotation, ...] = ()
     sections: tuple[Section, ...] = ()
     chunks: tuple[Chunk, ...] = ()
 

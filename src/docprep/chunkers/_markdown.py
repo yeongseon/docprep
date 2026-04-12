@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from ..models.domain import StructuralAnnotation, StructureKind
+
 _PARAGRAPH_SPLIT = re.compile(r"\n\n+")
 _FENCE_RE = re.compile(r"^ {0,3}([`~]{3,}).*$")
 _TOP_LEVEL_LIST_RE = re.compile(r"^ {0,3}(?:[-+*]|\d+[.)])\s+")
@@ -203,3 +205,99 @@ def _trim_range(text: str, start: int, end: int) -> tuple[int, int]:
     trimmed_start = _lstrip_index(text, start)
     trimmed_end = _rstrip_index(text, trimmed_start, end)
     return trimmed_start, trimmed_end
+
+
+def extract_structural_annotations(text: str) -> tuple[StructuralAnnotation, ...]:
+    """Extract structural annotations (code fences, tables, lists) from markdown text."""
+
+    if not text:
+        return ()
+
+    line_spans = _line_spans(text)
+
+    annotations: list[StructuralAnnotation] = []
+    for start, end in _fence_spans(line_spans, text_len=len(text)):
+        annotations.append(
+            StructuralAnnotation(
+                kind=StructureKind.CODE_FENCE,
+                char_start=start,
+                char_end=end,
+            )
+        )
+
+    table_row_spans, _ = _table_spans_and_boundaries(line_spans)
+    for start, end in _merge_row_like_spans(table_row_spans):
+        annotations.append(
+            StructuralAnnotation(
+                kind=StructureKind.TABLE,
+                char_start=start,
+                char_end=end,
+            )
+        )
+
+    list_item_spans, _ = _list_item_spans_and_boundaries(line_spans)
+    for start, end in _merge_touching_spans(list_item_spans):
+        annotations.append(
+            StructuralAnnotation(
+                kind=StructureKind.LIST,
+                char_start=start,
+                char_end=end,
+            )
+        )
+
+    return tuple(
+        sorted(
+            annotations,
+            key=lambda item: (item.char_start, item.char_end, item.kind.value),
+        )
+    )
+
+
+def structure_types_for_range(
+    annotations: tuple[StructuralAnnotation, ...],
+    start: int,
+    end: int,
+) -> tuple[str, ...]:
+    """Return sorted unique structure type strings for annotations overlapping [start, end)."""
+
+    if start >= end:
+        return ()
+
+    structure_types = {
+        annotation.kind.value
+        for annotation in annotations
+        if annotation.char_start < end and annotation.char_end > start
+    }
+    return tuple(sorted(structure_types))
+
+
+def _merge_row_like_spans(spans: list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    if not spans:
+        return ()
+
+    merged: list[tuple[int, int]] = []
+    current_start, current_end = spans[0]
+    for next_start, next_end in spans[1:]:
+        if next_start <= current_end + 1:
+            current_end = max(current_end, next_end)
+            continue
+        merged.append((current_start, current_end))
+        current_start, current_end = next_start, next_end
+    merged.append((current_start, current_end))
+    return tuple(merged)
+
+
+def _merge_touching_spans(spans: list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    if not spans:
+        return ()
+
+    merged: list[tuple[int, int]] = []
+    current_start, current_end = spans[0]
+    for next_start, next_end in spans[1:]:
+        if next_start <= current_end:
+            current_end = max(current_end, next_end)
+            continue
+        merged.append((current_start, current_end))
+        current_start, current_end = next_start, next_end
+    merged.append((current_start, current_end))
+    return tuple(merged)

@@ -17,6 +17,8 @@ from .domain import (
     SectionDelta,
     SinkUpsertResult,
     SourceScope,
+    StructuralAnnotation,
+    StructureKind,
     SyncResult,
     VectorRecord,
 )
@@ -38,6 +40,8 @@ __all__ = [
     "Section",
     "SinkUpsertResult",
     "SourceScope",
+    "StructuralAnnotation",
+    "StructureKind",
     "SyncResult",
     "VectorRecord",
 ]
