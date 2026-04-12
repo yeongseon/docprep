@@ -46,6 +46,14 @@ Ready-to-run examples are in the [`examples/`](../examples/) directory:
 | [`configs/minimal.toml`](../examples/configs/minimal.toml) | Minimal configuration |
 | [`configs/standard.toml`](../examples/configs/standard.toml) | Standard project configuration |
 | [`configs/advanced.toml`](../examples/configs/advanced.toml) | Advanced multi-format configuration |
+| [`quickstart.py`](../examples/quickstart.py) | Hello World — minimal 5-line ingest example |
+| [`cli_quickstart.sh`](../examples/cli_quickstart.sh) | CLI workflow walkthrough (preview → ingest → export → diff) |
+| [`adapter_markitdown.py`](../examples/adapter_markitdown.py) | Custom adapter (CSV→Markdown + MarkItDown pattern) |
+| [`vector_store_integration.py`](../examples/vector_store_integration.py) | Qdrant, ChromaDB, and JSONL export patterns |
+| [`custom_plugin.py`](../examples/custom_plugin.py) | Custom chunker plugin with entry-point registration |
+| [`error_handling.py`](../examples/error_handling.py) | Error modes, progress callbacks, exception hierarchy |
+| [`large_corpus.py`](../examples/large_corpus.py) | Parallel ingestion, checkpoints, streaming export |
+| [`sample_docs/`](../examples/sample_docs/) | Sample Markdown files used by examples |
 
 ## Contributing
 
