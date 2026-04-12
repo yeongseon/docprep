@@ -4,7 +4,7 @@ This guide walks you through installing docprep and running your first document 
 
 ## Prerequisites
 
-- Python 3.11 or later
+- Python 3.10 or later
 - pip (or any PEP 517-compatible installer)
 
 ## Installation

@@ -7,7 +7,7 @@ import importlib
 import logging
 from typing import cast
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .adapters.protocol import Adapter
 from .checkpoint import CheckpointStore
