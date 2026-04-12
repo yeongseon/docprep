@@ -133,7 +133,7 @@ def test_all_domain_dataclasses_use_kw_only(cls: DomainDataclass) -> None:
             "timestamp",
             "2026-01-02T00:00:00+00:00",
         ),
-        (IngestStageReport(stage="run", elapsed_ms=1.0), "elapsed_ms", 2.0),
+        (IngestStageReport(stage=PipelineStage.RUN, elapsed_ms=1.0), "elapsed_ms", 2.0),
         (IngestResult(documents=()), "persisted", True),
     ],
 )
@@ -215,7 +215,7 @@ def test_can_create_all_domain_objects_with_required_fields() -> None:
         created_at="2026-01-01T00:00:00+00:00",
     )
     sink_result = SinkUpsertResult()
-    stage_report = IngestStageReport(stage="run", elapsed_ms=1.0)
+    stage_report = IngestStageReport(stage=PipelineStage.RUN, elapsed_ms=1.0)
     result = IngestResult(documents=(document,), stage_reports=(stage_report,))
 
     assert section.document_id == document_id
@@ -231,7 +231,7 @@ def test_can_create_all_domain_objects_with_required_fields() -> None:
 
 
 def test_ingest_stage_report_default_values_work() -> None:
-    report = IngestStageReport(stage="parse", elapsed_ms=12.5)
+    report = IngestStageReport(stage=PipelineStage.PARSE, elapsed_ms=12.5)
 
     assert report.input_count == 0
     assert report.output_count == 0

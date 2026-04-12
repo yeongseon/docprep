@@ -27,6 +27,7 @@ from docprep.loaders.types import LoadedSource
 from docprep.models.domain import (
     Document,
     IngestStageReport,
+    PipelineStage,
     RunManifest,
     SinkUpsertResult,
     SourceScope,
@@ -625,7 +626,7 @@ def test_ingest_convenience_function_accepts_logger_and_progress_callback() -> N
         logger.removeHandler(handler)
 
     assert result.processed_count == 1
-    assert events[0] == IngestProgressEvent(stage="run", event="started")
+    assert events[0] == IngestProgressEvent(stage=PipelineStage.RUN, event="started")
     assert handler.records[-1].getMessage() == "Run completed: 1 processed, 0 failed"
 
 

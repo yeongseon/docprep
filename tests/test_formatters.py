@@ -5,7 +5,14 @@ from typing import cast
 import uuid
 
 from docprep.cli.formatters import format_ingest_result, format_preview, format_stats
-from docprep.models.domain import Chunk, Document, IngestResult, IngestStageReport, Section
+from docprep.models.domain import (
+    Chunk,
+    Document,
+    IngestResult,
+    IngestStageReport,
+    PipelineStage,
+    Section,
+)
 
 
 def _document() -> Document:
@@ -91,13 +98,13 @@ def test_format_ingest_result_includes_stage_reports() -> None:
         processed_count=1,
         stage_reports=(
             IngestStageReport(
-                stage="load",
+                stage=PipelineStage.LOAD,
                 elapsed_ms=12.345,
                 input_count=0,
                 output_count=1,
             ),
             IngestStageReport(
-                stage="run",
+                stage=PipelineStage.RUN,
                 elapsed_ms=45.678,
                 input_count=1,
                 output_count=1,
@@ -107,11 +114,7 @@ def test_format_ingest_result_includes_stage_reports() -> None:
     )
 
     assert format_ingest_result(result) == (
-        "Ingested 1 document(s)\n"
-        "  Processed: 1\n"
-        "Stage timings:\n"
-        "  load: 12.3ms\n"
-        "  run: 45.7ms"
+        "Ingested 1 document(s)\n  Processed: 1\nStage timings:\n  load: 12.3ms\n  run: 45.7ms"
     )
 
     assert json.loads(format_ingest_result(result, as_json=True))["stage_reports"] == [

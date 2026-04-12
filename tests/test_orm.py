@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import create_engine, inspect
 
 from docprep.exceptions import MetadataError
+from docprep.metadata import Metadata
 from docprep.models.domain import (
     Chunk,
     Document,
@@ -137,7 +138,7 @@ def test_domain_to_row_normalizes_metadata_values() -> None:
         source_uri="docs/example.md",
         title="Example",
         source_checksum="checksum",
-        frontmatter={"tags": ("python", "docs")},
+        frontmatter=cast(Metadata, {"tags": ("python", "docs")}),
         source_metadata={"lang": "en"},
     )
 

@@ -9,9 +9,10 @@ from hypothesis import strategies as st
 from docprep.chunkers.heading import HeadingChunker
 from docprep.chunkers.size import SizeChunker
 from docprep.ingest import Ingestor
+from docprep.models.domain import IngestResult
 
 
-def _ingest_text(text: str, *, max_chars: int | None = None):
+def _ingest_text(text: str, *, max_chars: int | None = None) -> IngestResult:
     with tempfile.TemporaryDirectory() as tmp_dir:
         path = Path(tmp_dir) / "sample.md"
         _ = path.write_text(text, encoding="utf-8")
@@ -20,7 +21,7 @@ def _ingest_text(text: str, *, max_chars: int | None = None):
         return Ingestor(chunkers=[HeadingChunker(), SizeChunker(max_chars=max_chars)]).run(path)
 
 
-def _ingest_path(path: Path, *, max_chars: int | None = None):
+def _ingest_path(path: Path, *, max_chars: int | None = None) -> IngestResult:
     if max_chars is None:
         return Ingestor().run(path)
     return Ingestor(chunkers=[HeadingChunker(), SizeChunker(max_chars=max_chars)]).run(path)

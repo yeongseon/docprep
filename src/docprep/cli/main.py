@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence, TextIO
 
 from docprep.exceptions import DocPrepError
+
+if TYPE_CHECKING:
+    from docprep.sinks.sqlalchemy import SQLAlchemySink
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -171,18 +174,18 @@ def _resolve_json(args: argparse.Namespace) -> bool:
 def _resolve_source(args: argparse.Namespace) -> str:
     source = getattr(args, "source", None)
     if source is not None:
-        return source
+        return str(source)
 
     resolved = args.docprep_config.resolved_source()
     if resolved is not None:
-        return resolved
+        return str(resolved)
 
     from docprep.exceptions import ConfigError
 
     raise ConfigError("No source specified: provide source argument or set 'source' in config")
 
 
-def _get_sink(args: argparse.Namespace):
+def _get_sink(args: argparse.Namespace) -> SQLAlchemySink:
     from sqlalchemy import create_engine
 
     from docprep.exceptions import ConfigError
@@ -394,6 +397,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
     records_written = 0
     deleted_written = 0
 
+    output: TextIO
     if args.output is not None:
         output = open(args.output, "w", encoding="utf-8")
         should_close_output = True

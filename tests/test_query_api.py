@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from typing import cast
 import uuid
 
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 
 from docprep.ids import (
     chunk_anchor,
@@ -17,7 +18,7 @@ from docprep.models.domain import Chunk, Document, Page, Section
 from docprep.sinks.sqlalchemy import SQLAlchemySink
 
 
-def _make_engine():
+def _make_engine() -> Engine:
     return create_engine("sqlite:///:memory:")
 
 
@@ -264,9 +265,10 @@ def test_list_sections_returns_ordered_sections() -> None:
     _ = sink.upsert([doc])
 
     page = sink.list_sections(doc.id)
+    items = cast(tuple[Section, ...], page.items)
 
     assert page.total == 2
-    assert [section.order_index for section in page.items] == [0, 1]
+    assert [section.order_index for section in items] == [0, 1]
 
 
 def test_list_sections_pagination_works() -> None:
@@ -275,10 +277,11 @@ def test_list_sections_pagination_works() -> None:
     _ = sink.upsert([doc])
 
     page = sink.list_sections(doc.id, offset=1, limit=1)
+    items = cast(tuple[Section, ...], page.items)
 
     assert page.total == 2
-    assert len(page.items) == 1
-    assert page.items[0].order_index == 1
+    assert len(items) == 1
+    assert items[0].order_index == 1
     assert page.has_more is False
 
 
@@ -307,9 +310,10 @@ def test_list_chunks_returns_ordered_chunks() -> None:
     _ = sink.upsert([doc])
 
     page = sink.list_chunks(doc.id)
+    items = cast(tuple[Chunk, ...], page.items)
 
     assert page.total == 3
-    assert [chunk.order_index for chunk in page.items] == [0, 1, 2]
+    assert [chunk.order_index for chunk in items] == [0, 1, 2]
 
 
 def test_list_chunks_pagination_works() -> None:
@@ -318,10 +322,11 @@ def test_list_chunks_pagination_works() -> None:
     _ = sink.upsert([doc])
 
     page = sink.list_chunks(doc.id, offset=1, limit=1)
+    items = cast(tuple[Chunk, ...], page.items)
 
     assert page.total == 3
-    assert len(page.items) == 1
-    assert page.items[0].order_index == 1
+    assert len(items) == 1
+    assert items[0].order_index == 1
     assert page.has_more is True
 
 
@@ -332,11 +337,12 @@ def test_get_chunks_by_section_returns_only_section_chunks() -> None:
     intro_section_id = doc.sections[0].id
 
     page = sink.get_chunks_by_section(intro_section_id)
+    items = cast(tuple[Chunk, ...], page.items)
 
     assert page.total == 2
-    assert len(page.items) == 2
-    assert all(chunk.section_id == intro_section_id for chunk in page.items)
-    assert [chunk.section_chunk_index for chunk in page.items] == [0, 1]
+    assert len(items) == 2
+    assert all(chunk.section_id == intro_section_id for chunk in items)
+    assert [chunk.section_chunk_index for chunk in items] == [0, 1]
 
 
 def test_stats_still_works() -> None:

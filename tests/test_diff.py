@@ -38,14 +38,14 @@ def _build_document(
     chunks: list[Chunk] = []
     for order_index, (anchor, content_hash) in enumerate(chunk_entries):
         section_anchor = anchor.split(":", 1)[0]
-        section_id = section_ids.get(section_anchor)
-        if section_id is None:
-            section_id = uuid.uuid5(DOCPREP_NAMESPACE, f"{doc_id}:section:{section_anchor}")
+        chunk_section_id = section_ids.get(section_anchor)
+        if chunk_section_id is None:
+            chunk_section_id = uuid.uuid5(DOCPREP_NAMESPACE, f"{doc_id}:section:{section_anchor}")
         chunks.append(
             Chunk(
                 id=uuid.uuid5(DOCPREP_NAMESPACE, f"{doc_id}:chunk:{anchor}"),
                 document_id=doc_id,
-                section_id=section_id,
+                section_id=chunk_section_id,
                 order_index=order_index,
                 section_chunk_index=0,
                 anchor=anchor,

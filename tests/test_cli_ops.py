@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 
 from docprep.cli import main as cli_main
+from docprep.models.domain import Document
 from docprep.sinks.sqlalchemy import SQLAlchemySink
 from tests.test_cli import _reset_ingest_logger
 
@@ -31,7 +32,7 @@ def _init_empty_db(db_path: Path) -> None:
     _ = SQLAlchemySink(engine=engine, create_tables=True)
 
 
-def _get_doc(tmp_path: Path, db_path: Path, source_uri: str):
+def _get_doc(tmp_path: Path, db_path: Path, source_uri: str) -> Document:
     del tmp_path
     sink = SQLAlchemySink(engine=create_engine(f"sqlite:///{db_path}"), create_tables=False)
     document = sink.get_document(source_uri)
