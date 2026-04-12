@@ -31,6 +31,12 @@ class PipelineStage(StrEnum):  # pyright: ignore[reportUntypedBaseClass]
     RUN = "run"
 
 
+@final
+class ErrorMode(StrEnum):  # pyright: ignore[reportUntypedBaseClass]
+    FAIL_FAST = "fail_fast"
+    CONTINUE_ON_ERROR = "continue_on_error"
+
+
 @dataclass(frozen=True, kw_only=True, slots=True)
 class Section:
     """A heading-delimited section within a document."""
@@ -65,6 +71,14 @@ class Chunk:
     token_count: int | None = None
     heading_path: tuple[str, ...] = ()
     lineage: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class DocumentError:
+    source_uri: str
+    stage: PipelineStage
+    error_type: str
+    message: str
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -275,6 +289,7 @@ class IngestResult:
     updated_source_uris: tuple[str, ...] = ()
     deleted_source_uris: tuple[str, ...] = ()
     failed_source_uris: tuple[str, ...] = ()
+    errors: tuple[DocumentError, ...] = ()
     stage_reports: tuple[IngestStageReport, ...] = ()
     persisted: bool = False
     sink_name: str | None = None

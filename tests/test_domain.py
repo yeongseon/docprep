@@ -10,7 +10,9 @@ from docprep.metadata import Metadata
 from docprep.models.domain import (
     Chunk,
     Document,
+    DocumentError,
     DocumentRevision,
+    ErrorMode,
     IngestResult,
     IngestStageReport,
     PipelineStage,
@@ -27,6 +29,7 @@ from docprep.progress import IngestProgressEvent
 DomainDataclass: TypeAlias = (
     type[Section]
     | type[Chunk]
+    | type[DocumentError]
     | type[Document]
     | type[DocumentRevision]
     | type[VectorRecord]
@@ -53,6 +56,7 @@ def _make_document() -> Document:
     [
         Section,
         Chunk,
+        DocumentError,
         Document,
         DocumentRevision,
         VectorRecord,
@@ -87,6 +91,16 @@ def test_all_domain_dataclasses_use_kw_only(cls: DomainDataclass) -> None:
             ),
             "content_text",
             "new",
+        ),
+        (
+            DocumentError(
+                source_uri="docs/example.md",
+                stage=PipelineStage.PARSE,
+                error_type="RuntimeError",
+                message="boom",
+            ),
+            "message",
+            "updated",
         ),
         (_make_document(), "title", "Updated"),
         (
@@ -147,6 +161,7 @@ def test_all_domain_dataclasses_are_frozen(instance: object, attribute: str, val
     [
         Section,
         Chunk,
+        DocumentError,
         Document,
         DocumentRevision,
         VectorRecord,
@@ -190,6 +205,12 @@ def test_can_create_all_domain_objects_with_required_fields() -> None:
         title="Example",
         source_checksum="checksum",
     )
+    document_error = DocumentError(
+        source_uri="docs/example.md",
+        stage=PipelineStage.PARSE,
+        error_type="RuntimeError",
+        message="boom",
+    )
     record = VectorRecord(id=uuid.uuid4(), text="vector text")
     revision = DocumentRevision(
         id=uuid.uuid4(),
@@ -220,6 +241,7 @@ def test_can_create_all_domain_objects_with_required_fields() -> None:
 
     assert section.document_id == document_id
     assert chunk.section_id == section.id
+    assert document_error.source_uri == "docs/example.md"
     assert document.title == "Example"
     assert revision.document_id == document_id
     assert record.metadata == {}
@@ -258,6 +280,7 @@ def test_ingest_result_expanded_default_values_work() -> None:
     assert result.updated_source_uris == ()
     assert result.deleted_source_uris == ()
     assert result.failed_source_uris == ()
+    assert result.errors == ()
     assert result.stage_reports == ()
     assert result.persisted is False
     assert result.sink_name is None
@@ -338,6 +361,10 @@ def test_stage_schema_snapshot() -> None:
         PipelineStage.CHUNK,
         PipelineStage.PERSIST,
         PipelineStage.RUN,
+    ]
+    assert list(ErrorMode) == [
+        ErrorMode.FAIL_FAST,
+        ErrorMode.CONTINUE_ON_ERROR,
     ]
 
 
