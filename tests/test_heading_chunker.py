@@ -36,6 +36,7 @@ def test_root_section_created_for_content_before_first_heading() -> None:
 
     assert chunked.sections[0].heading is None
     assert chunked.sections[0].heading_level == 0
+    assert chunked.sections[0].anchor == "__root__"
     assert chunked.sections[0].content_markdown == "Intro"
 
 
@@ -57,9 +58,9 @@ def test_nested_headings_build_heading_path_and_lineage() -> None:
     assert chunked.sections[3].heading_path == ("One", "Four")
     assert chunked.sections[2].parent_id == chunked.sections[1].id
     assert chunked.sections[2].lineage == (
-        str(chunked.sections[0].id),
-        str(chunked.sections[1].id),
-        str(chunked.sections[2].id),
+        "one",
+        "one/two",
+        "one/two/three",
     )
 
 

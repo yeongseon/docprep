@@ -71,4 +71,5 @@ class MarkdownParser:
                 return stripped[2:].strip()
 
         # 3) stem of the source path
-        return PurePosixPath(source_uri).stem
+        source_path = source_uri[5:] if source_uri.startswith("file:") else source_uri
+        return PurePosixPath(source_path).stem

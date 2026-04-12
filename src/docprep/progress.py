@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from docprep.models.domain import PipelineStage
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class IngestProgressEvent:
     """A progress event emitted during an ingest pipeline run."""
 
-    stage: Literal["run", "load", "parse", "chunk", "sink"]
+    stage: PipelineStage
     event: Literal["started", "completed", "failed", "skipped", "updated"]
     source_uri: str | None = None
     current: int | None = None

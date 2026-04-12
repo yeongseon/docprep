@@ -27,3 +27,9 @@ dist/
 
 # OS
 .DS_Store
+
+# Hypothesis test database
+.hypothesis/
+
+# Sisyphus agent state
+.sisyphus/

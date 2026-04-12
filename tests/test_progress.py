@@ -37,7 +37,7 @@ def test_ingest_progress_event_optional_fields_default_to_none() -> None:
 
 def test_ingest_progress_event_accepts_all_fields() -> None:
     event = IngestProgressEvent(
-        stage="sink",
+        stage="persist",
         event="failed",
         source_uri="docs/example.md",
         current=2,
@@ -50,7 +50,7 @@ def test_ingest_progress_event_accepts_all_fields() -> None:
     )
 
     assert event == IngestProgressEvent(
-        stage="sink",
+        stage="persist",
         event="failed",
         source_uri="docs/example.md",
         current=2,

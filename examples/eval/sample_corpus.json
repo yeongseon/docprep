@@ -1,0 +1,17 @@
+{
+  "name": "sample-chunking-eval",
+  "description": "A small example evaluation corpus for chunking experiments",
+  "source_dir": "docs/",
+  "queries": [
+    {
+      "query": "How do I install docprep?",
+      "answer_spans": [
+        {
+          "text": "pip install docprep",
+          "source_uri": "file:README.md"
+        }
+      ],
+      "relevant_doc_uris": ["file:README.md"]
+    }
+  ]
+}

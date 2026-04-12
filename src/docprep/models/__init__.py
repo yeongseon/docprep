@@ -1,21 +1,43 @@
 from __future__ import annotations
 
-from docprep.models.domain import (
+from .domain import (
     Chunk,
+    ChunkDelta,
+    DeletePolicy,
+    DeleteResult,
+    DiffSummary,
     Document,
+    DocumentRevision,
     IngestResult,
     IngestStageReport,
+    Page,
+    RevisionDiff,
+    RunManifest,
     Section,
+    SectionDelta,
     SinkUpsertResult,
+    SourceScope,
+    SyncResult,
     VectorRecord,
 )
 
 __all__ = [
+    "ChunkDelta",
     "Chunk",
+    "DeletePolicy",
+    "DeleteResult",
+    "DiffSummary",
     "Document",
+    "DocumentRevision",
     "IngestResult",
     "IngestStageReport",
+    "Page",
+    "RevisionDiff",
+    "RunManifest",
+    "SectionDelta",
     "Section",
     "SinkUpsertResult",
+    "SourceScope",
+    "SyncResult",
     "VectorRecord",
 ]

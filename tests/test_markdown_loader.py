@@ -71,10 +71,10 @@ def test_checksum_is_computed_correctly(tmp_path: Path) -> None:
     assert loaded.checksum == sha256_checksum(content)
 
 
-def test_source_uri_uses_posix_path(tmp_path: Path) -> None:
+def test_source_uri_is_canonical_file_uri(tmp_path: Path) -> None:
     path = tmp_path / "guide.md"
     _ = path.write_text("# Guide\n", encoding="utf-8")
 
     loaded = next(iter(MarkdownLoader().load(path)))
 
-    assert loaded.source_uri == path.as_posix()
+    assert loaded.source_uri == "file:guide.md"

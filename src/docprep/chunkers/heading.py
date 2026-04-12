@@ -4,9 +4,19 @@ from __future__ import annotations
 
 from dataclasses import replace
 import re
+import uuid
 
 from docprep.exceptions import ChunkError
-from docprep.ids import section_id
+from docprep.ids import (
+    ROOT_ANCHOR,
+    section_id,
+)
+from docprep.ids import (
+    content_hash as compute_content_hash,
+)
+from docprep.ids import (
+    section_anchor as compute_section_anchor,
+)
 from docprep.models.domain import Document, Section
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
@@ -69,35 +79,44 @@ class HeadingChunker:
 
     def _build_sections(
         self,
-        doc_id: object,
+        doc_id: uuid.UUID,
         raw_sections: list[tuple[int, str | None, str]],
     ) -> list[Section]:
         sections: list[Section] = []
-        # heading_stack tracks (level, heading_text, section_id) for building paths
-        heading_stack: list[tuple[int, str, object]] = []
+        heading_stack: list[tuple[int, str, str]] = []
+        sibling_counts: dict[tuple[str, str], int] = {}
 
         for order_index, (level, heading, content) in enumerate(raw_sections):
-            sid = section_id(doc_id, order_index)  # type: ignore[arg-type]
+            if heading is not None:
+                while heading_stack and heading_stack[-1][0] >= level:
+                    _ = heading_stack.pop()
+
+            parent_anchor = heading_stack[-1][2] if heading_stack else ROOT_ANCHOR
+            anchor = compute_section_anchor(heading, parent_anchor, sibling_counts)
+            sid = section_id(doc_id, anchor)
 
             if heading is not None:
-                # Pop stack entries at same or deeper level
-                while heading_stack and heading_stack[-1][0] >= level:
-                    heading_stack.pop()
-                heading_stack.append((level, heading, sid))
+                heading_stack.append((level, heading, anchor))
 
             heading_path = tuple(h[1] for h in heading_stack)
-            lineage = tuple(str(h[2]) for h in heading_stack)
+            lineage = tuple(h[2] for h in heading_stack)
 
-            parent_id = heading_stack[-2][2] if len(heading_stack) >= 2 else None
+            parent_id = None
+            if heading is not None and len(heading_stack) >= 2:
+                parent_id = section_id(doc_id, heading_stack[-2][2])
+
+            c_hash = compute_content_hash(content) if content else compute_content_hash("")
 
             sections.append(
                 Section(
                     id=sid,
-                    document_id=doc_id,  # type: ignore[arg-type]
+                    document_id=doc_id,
                     order_index=order_index,
-                    parent_id=parent_id,  # type: ignore[arg-type]
+                    parent_id=parent_id,
                     heading=heading,
                     heading_level=level,
+                    anchor=anchor,
+                    content_hash=c_hash,
                     heading_path=heading_path,
                     lineage=lineage,
                     content_markdown=content,

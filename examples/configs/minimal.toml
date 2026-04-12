@@ -1,0 +1,3 @@
+# Minimal config: just specify the source directory.
+# docprep uses sensible defaults for everything else.
+source = "docs/"

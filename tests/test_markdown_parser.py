@@ -38,6 +38,12 @@ def test_title_falls_back_to_filename_stem() -> None:
     assert doc.title == "fallback-name"
 
 
+def test_title_falls_back_to_filename_stem_for_file_uri() -> None:
+    doc = MarkdownParser().parse(_loaded_source("Body only", source_uri="file:fallback-name.md"))
+
+    assert doc.title == "fallback-name"
+
+
 def test_frontmatter_is_extracted_correctly() -> None:
     doc = MarkdownParser().parse(_loaded_source("---\ntitle: Title\ntags:\n  - one\n---\nBody\n"))
 

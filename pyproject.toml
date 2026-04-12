@@ -37,6 +37,27 @@ Issues = "https://github.com/yeongseon/docprep/issues"
 [project.scripts]
 docprep = "docprep.cli.main:main"
 
+[project.entry-points."docprep.loaders"]
+markdown = "docprep.loaders.markdown:MarkdownLoader"
+filesystem = "docprep.loaders.filesystem:FileSystemLoader"
+
+[project.entry-points."docprep.parsers"]
+markdown = "docprep.parsers.markdown:MarkdownParser"
+plaintext = "docprep.parsers.plaintext:PlainTextParser"
+html = "docprep.parsers.html:HtmlParser"
+rst = "docprep.parsers.rst:RstParser"
+auto = "docprep.parsers.multi:MultiFormatParser"
+
+[project.entry-points."docprep.chunkers"]
+heading = "docprep.chunkers.heading:HeadingChunker"
+size = "docprep.chunkers.size:SizeChunker"
+token = "docprep.chunkers.token:TokenChunker"
+
+[project.entry-points."docprep.sinks"]
+sqlalchemy = "docprep.sinks.sqlalchemy:SQLAlchemySink"
+
+[project.entry-points."docprep.adapters"]
+
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1,<4.0"]
 dev = [
@@ -45,6 +66,7 @@ dev = [
     "coverage",
     "git-cliff",
     "hatch",
+    "hypothesis>=6.100,<7.0",
     "mypy>=1.10,<2.0",
     "pre-commit>=3.7,<5.0",
     "pytest>=8.0,<9.0",
@@ -95,6 +117,9 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_golden_fixtures.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["docprep"]

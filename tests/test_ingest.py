@@ -24,7 +24,13 @@ from docprep.exceptions import ConfigError, IngestError
 from docprep.ingest import Ingestor, ingest
 from docprep.loaders.protocol import Loader
 from docprep.loaders.types import LoadedSource
-from docprep.models.domain import Document, IngestStageReport, SinkUpsertResult
+from docprep.models.domain import (
+    Document,
+    IngestStageReport,
+    RunManifest,
+    SinkUpsertResult,
+    SourceScope,
+)
 from docprep.parsers.protocol import Parser
 from docprep.progress import IngestProgressEvent
 from docprep.sinks.orm import DocumentRow
@@ -60,10 +66,21 @@ class RecordingSink:
     def __init__(self, *, result: SinkUpsertResult | None = None) -> None:
         self.result: SinkUpsertResult = result or SinkUpsertResult()
         self.documents: tuple[Document, ...] = ()
+        self.run_ids: tuple[uuid.UUID | None, ...] = ()
+        self.manifests: tuple[RunManifest, ...] = ()
 
-    def upsert(self, documents: Sequence[Document]) -> SinkUpsertResult:
+    def upsert(
+        self,
+        documents: Sequence[Document],
+        *,
+        run_id: uuid.UUID | None = None,
+    ) -> SinkUpsertResult:
         self.documents = tuple(documents)
+        self.run_ids = self.run_ids + (run_id,)
         return self.result
+
+    def record_run(self, manifest: RunManifest) -> None:
+        self.manifests = self.manifests + (manifest,)
 
 
 def _loaded_source(*, source_uri: str, raw_text: str = "# Title\n\nBody\n") -> LoadedSource:
@@ -93,9 +110,68 @@ def test_ingestor_with_defaults_processes_markdown_file(tmp_path: Path) -> None:
     assert len(result.documents) == 1
     assert result.documents[0].title == "Title"
     assert len(result.documents[0].sections) == 1
-    assert result.documents[0].chunks == ()
+    assert len(result.documents[0].chunks) == 1  # SizeChunker now in defaults
     assert result.processed_count == 1
     assert result.failed_count == 0
+    assert result.run_manifest is not None
+    assert result.run_manifest.scope == SourceScope(prefixes=("file:guide.md",), explicit=False)
+    assert result.run_manifest.source_uris_seen == ("file:guide.md",)
+
+
+def test_ingestor_default_parser_dispatches_by_media_type() -> None:
+    plain = LoadedSource(
+        source_path="notes.txt",
+        source_uri="file:notes.txt",
+        raw_text="Plain title\nBody",
+        checksum="checksum",
+        media_type="text/plain",
+    )
+    html = LoadedSource(
+        source_path="page.html",
+        source_uri="file:page.html",
+        raw_text="<h1>Html Title</h1><p>Body</p>",
+        checksum="checksum2",
+        media_type="text/html",
+    )
+
+    class MultiSourceLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [plain, html]
+
+    result = Ingestor(loader=MultiSourceLoader()).run("ignored")
+
+    assert [doc.source_type for doc in result.documents] == ["plaintext", "html"]
+    assert [doc.title for doc in result.documents] == ["Plain title", "Html Title"]
+
+
+def test_default_chunkers_are_heading_and_size() -> None:
+    """DEFAULT_CHUNKERS is the single source of truth for the default pipeline."""
+    from docprep.ingest import DEFAULT_CHUNKERS
+
+    assert len(DEFAULT_CHUNKERS) == 2
+    assert isinstance(DEFAULT_CHUNKERS[0], HeadingChunker)
+    assert isinstance(DEFAULT_CHUNKERS[1], SizeChunker)
+
+
+def test_ingestor_default_matches_cli_default(tmp_path: Path) -> None:
+    """CLI and API must produce identical output for the same input when no config is given."""
+    path = tmp_path / "guide.md"
+    _ = path.write_text("# Title\n\nParagraph one. Paragraph two.\n", encoding="utf-8")
+
+    # API path
+    api_result = Ingestor().run(path)
+
+    # CLI path (simulates what _cmd_ingest / _cmd_preview do)
+    from docprep.ingest import DEFAULT_CHUNKERS
+
+    cli_result = Ingestor(chunkers=list(DEFAULT_CHUNKERS)).run(path)
+
+    assert len(api_result.documents) == len(cli_result.documents)
+    for api_doc, cli_doc in zip(api_result.documents, cli_result.documents):
+        assert len(api_doc.sections) == len(cli_doc.sections)
+        assert len(api_doc.chunks) == len(cli_doc.chunks)
+        assert [c.content_text for c in api_doc.chunks] == [c.content_text for c in cli_doc.chunks]
 
 
 def test_ingestor_with_sink_persists_documents(tmp_path: Path) -> None:
@@ -109,8 +185,9 @@ def test_ingestor_with_sink_persists_documents(tmp_path: Path) -> None:
     assert result.persisted is True
     assert result.sink_name == "SQLAlchemySink"
     assert result.updated_count == 1
-    assert result.updated_source_uris == (path.as_posix(),)
+    assert result.updated_source_uris == ("file:guide.md",)
     assert result.skipped_source_uris == ()
+    assert result.run_manifest is not None
     with Session(engine) as session:
         assert session.execute(select(DocumentRow)).scalar_one().title == "Title"
 
@@ -132,7 +209,7 @@ def test_ingest_convenience_function_works(tmp_path: Path) -> None:
     result = ingest(path, chunkers=[HeadingChunker()])
 
     assert len(result.documents) == 1
-    assert result.documents[0].source_uri == path.as_posix()
+    assert result.documents[0].source_uri == "file:guide.md"
     assert result.processed_count == 1
 
 
@@ -160,7 +237,9 @@ def test_ingestor_continues_after_parse_failure(tmp_path: Path) -> None:
     assert isinstance(SometimesFailingParser(), Parser)
 
     ingestor = Ingestor(
-        loader=SingleLoader(), parser=SometimesFailingParser(), chunkers=[],
+        loader=SingleLoader(),
+        parser=SometimesFailingParser(),
+        chunkers=[],
     )
     result = ingestor.run(tmp_path)
 
@@ -229,6 +308,29 @@ def test_ingestor_with_config_builds_and_runs_pipeline(tmp_path: Path) -> None:
     assert result.updated_count == 1
 
 
+def test_ingestor_config_passes_overlap_and_min_chars_to_size_chunker(tmp_path: Path) -> None:
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    path = docs_dir / "guide.md"
+    _ = path.write_text("# Title\n\nabcdefghij", encoding="utf-8")
+    config = DocPrepConfig(
+        source="docs",
+        chunkers=(
+            HeadingChunkerConfig(),
+            SizeChunkerConfig(max_chars=4, overlap_chars=2, min_chars=2),
+        ),
+        config_path=tmp_path / "docprep.toml",
+    )
+
+    result = Ingestor(config=config).run()
+
+    assert [chunk.content_text for chunk in result.documents[0].chunks] == [
+        "abcd",
+        "cdefgh",
+        "ghij",
+    ]
+
+
 def test_ingestor_uses_config_source_when_run_source_is_none(tmp_path: Path) -> None:
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
@@ -238,7 +340,7 @@ def test_ingestor_uses_config_source_when_run_source_is_none(tmp_path: Path) -> 
 
     result = Ingestor(config=config).run()
 
-    assert result.documents[0].source_uri == path.as_posix()
+    assert result.documents[0].source_uri == "file:guide.md"
 
 
 def test_ingestor_raises_config_error_when_no_source_available() -> None:
@@ -259,7 +361,7 @@ def test_ingestor_explicit_source_overrides_config_source(tmp_path: Path) -> Non
     result = Ingestor(config=config).run(explicit_path)
 
     assert result.documents[0].title == "Explicit Title"
-    assert result.documents[0].source_uri == explicit_path.as_posix()
+    assert result.documents[0].source_uri == "file:explicit.md"
 
 
 def test_ingest_convenience_function_supports_config(tmp_path: Path) -> None:
@@ -272,7 +374,7 @@ def test_ingest_convenience_function_supports_config(tmp_path: Path) -> None:
     result = ingest(config=config)
 
     assert len(result.documents) == 1
-    assert result.documents[0].source_uri == path.as_posix()
+    assert result.documents[0].source_uri == "file:guide.md"
 
 
 def test_ingestor_with_configured_sqlalchemy_sink_persists_documents(tmp_path: Path) -> None:
@@ -363,10 +465,10 @@ def test_ingestor_emits_progress_events() -> None:
         ("parse", "completed"),
         ("chunk", "started"),
         ("chunk", "completed"),
-        ("sink", "started"),
-        ("sink", "skipped"),
-        ("sink", "updated"),
-        ("sink", "completed"),
+        ("persist", "started"),
+        ("persist", "skipped"),
+        ("persist", "updated"),
+        ("persist", "completed"),
         ("run", "completed"),
     ]
 
@@ -392,7 +494,10 @@ def test_ingestor_uses_custom_logger() -> None:
 
     try:
         ingestor = Ingestor(
-            loader=SingleLoader(), parser=PassthroughParser(), chunkers=[], logger=logger,
+            loader=SingleLoader(),
+            parser=PassthroughParser(),
+            chunkers=[],
+            logger=logger,
         )
         _ = ingestor.run("ignored")
     finally:
@@ -445,7 +550,10 @@ def test_ingestor_result_contains_expanded_counts() -> None:
     )
 
     ingestor = Ingestor(
-        loader=SingleLoader(), parser=PassthroughParser(), chunkers=[], sink=sink,
+        loader=SingleLoader(),
+        parser=PassthroughParser(),
+        chunkers=[],
+        sink=sink,
     )
     result = ingestor.run("ignored")
 
@@ -458,6 +566,30 @@ def test_ingestor_result_contains_expanded_counts() -> None:
     assert result.updated_source_uris == ()
     assert result.deleted_source_uris == ()
     assert result.failed_source_uris == ()
+
+
+def test_ingestor_records_run_manifest_to_sink_when_supported() -> None:
+    loaded_source = _loaded_source(source_uri="docs/example.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    sink = RecordingSink()
+
+    result = Ingestor(
+        loader=SingleLoader(), parser=PassthroughParser(), chunkers=[], sink=sink
+    ).run("ignored")
+
+    assert result.run_manifest is not None
+    assert sink.run_ids == (result.run_manifest.run_id,)
+    assert sink.manifests == (result.run_manifest,)
+    assert result.run_manifest.scope == SourceScope(prefixes=("file:ignored/",), explicit=False)
 
 
 def test_ingest_convenience_function_accepts_logger_and_progress_callback() -> None:
@@ -553,7 +685,14 @@ def test_sink_failure_emits_run_failed_progress_event() -> None:
             return _document_from_loaded_source(loaded_source)
 
     class FailingSink:
-        def upsert(self, documents: Sequence[Document]) -> SinkUpsertResult:
+        def upsert(
+            self,
+            documents: Sequence[Document],
+            *,
+            run_id: uuid.UUID | None = None,
+        ) -> SinkUpsertResult:
+            del documents
+            del run_id
             raise RuntimeError("sink boom")
 
     with pytest.raises(IngestError, match="Sink failed"):
@@ -566,5 +705,5 @@ def test_sink_failure_emits_run_failed_progress_event() -> None:
         ).run("ignored")
 
     stage_events = [(e.stage, e.event) for e in events]
-    assert ("sink", "failed") in stage_events
+    assert ("persist", "failed") in stage_events
     assert ("run", "failed") in stage_events

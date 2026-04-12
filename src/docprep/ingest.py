@@ -3,19 +3,37 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import time
+import uuid
 
-from docprep.chunkers.heading import HeadingChunker
-from docprep.chunkers.protocol import Chunker
-from docprep.config import DocPrepConfig
-from docprep.exceptions import ConfigError, IngestError
-from docprep.loaders.protocol import Loader
-from docprep.models.domain import Document, IngestResult, IngestStageReport, SinkUpsertResult
-from docprep.parsers.protocol import Parser
-from docprep.progress import IngestProgressEvent, ProgressCallback
-from docprep.sinks.protocol import Sink
+from .chunkers.heading import HeadingChunker
+from .chunkers.protocol import Chunker
+from .chunkers.size import SizeChunker
+from .config import DocPrepConfig
+from .exceptions import ConfigError, IngestError
+from .loaders.protocol import Loader
+from .models.domain import (
+    Document,
+    IngestResult,
+    IngestStageReport,
+    PipelineStage,
+    RunManifest,
+    SinkUpsertResult,
+    SourceScope,
+)
+from .parsers.protocol import Parser
+from .progress import IngestProgressEvent, ProgressCallback
+from .scope import derive_scope
+from .sinks.protocol import Sink
+
+DEFAULT_CHUNKERS: Sequence[Chunker] = (HeadingChunker(), SizeChunker())
+"""Canonical default chunker pipeline — used by both Ingestor and CLI.
+
+Provides heading-based sectioning followed by token-size splitting.
+"""
 
 
 class Ingestor:
@@ -29,6 +47,7 @@ class Ingestor:
         parser: Parser | None = None,
         chunkers: Sequence[Chunker] | None = None,
         sink: Sink | None = None,
+        scope: SourceScope | None = None,
         logger: logging.Logger | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> None:
@@ -39,6 +58,7 @@ class Ingestor:
             chunkers if chunkers is not None else self._chunkers_from_config(config)
         )
         self._sink = sink if sink is not None else self._sink_from_config(config)
+        self._scope = scope
         self._logger = logger if logger is not None else logging.getLogger("docprep.ingest")
         self._progress_callback = progress_callback
 
@@ -53,13 +73,14 @@ class Ingestor:
 
     def run(self, source: str | Path | None = None) -> IngestResult:
         run_start = time.perf_counter()
-        self._emit(IngestProgressEvent(stage="run", event="started"))
+        self._emit(IngestProgressEvent(stage=PipelineStage.RUN, event="started"))
 
         resolved_source = self._resolve_source(source)
+        run_scope = self._scope if self._scope is not None else derive_scope(resolved_source)
 
         # --- Load stage ---
         load_start = time.perf_counter()
-        self._emit(IngestProgressEvent(stage="load", event="started"))
+        self._emit(IngestProgressEvent(stage=PipelineStage.LOAD, event="started"))
         try:
             loaded_sources = list(self._loader.load(resolved_source))
         except Exception as exc:
@@ -67,21 +88,21 @@ class Ingestor:
                 "Load stage failed: %s",
                 type(exc).__name__,
                 extra={
-                    "stage": "load",
+                    "stage": PipelineStage.LOAD,
                     "event": "failed",
                     "error_type": type(exc).__name__,
                 },
             )
             self._emit(
                 IngestProgressEvent(
-                    stage="load",
+                    stage=PipelineStage.LOAD,
                     event="failed",
                     error_type=type(exc).__name__,
                 )
             )
             self._emit(
                 IngestProgressEvent(
-                    stage="run",
+                    stage=PipelineStage.RUN,
                     event="failed",
                     error_type=type(exc).__name__,
                 )
@@ -91,18 +112,18 @@ class Ingestor:
         self._logger.info(
             "Loaded %d source(s)",
             len(loaded_sources),
-            extra={"stage": "load", "event": "completed", "count": len(loaded_sources)},
+            extra={"stage": PipelineStage.LOAD, "event": "completed", "count": len(loaded_sources)},
         )
         self._emit(
             IngestProgressEvent(
-                stage="load",
+                stage=PipelineStage.LOAD,
                 event="completed",
                 total=len(loaded_sources),
                 elapsed_ms=load_elapsed,
             )
         )
         load_report = IngestStageReport(
-            stage="load",
+            stage=PipelineStage.LOAD,
             elapsed_ms=load_elapsed,
             output_count=len(loaded_sources),
         )
@@ -118,7 +139,7 @@ class Ingestor:
         for idx, ls in enumerate(loaded_sources):
             self._emit(
                 IngestProgressEvent(
-                    stage="parse",
+                    stage=PipelineStage.PARSE,
                     event="started",
                     source_uri=ls.source_uri,
                     current=idx + 1,
@@ -133,7 +154,7 @@ class Ingestor:
                     ls.source_uri,
                     type(exc).__name__,
                     extra={
-                        "stage": "parse",
+                        "stage": PipelineStage.PARSE,
                         "event": "failed",
                         "source_uri": ls.source_uri,
                         "error_type": type(exc).__name__,
@@ -141,7 +162,7 @@ class Ingestor:
                 )
                 self._emit(
                     IngestProgressEvent(
-                        stage="parse",
+                        stage=PipelineStage.PARSE,
                         event="failed",
                         source_uri=ls.source_uri,
                         error_type=type(exc).__name__,
@@ -156,7 +177,7 @@ class Ingestor:
                 ls.source_uri,
                 len(doc.sections),
                 extra={
-                    "stage": "parse",
+                    "stage": PipelineStage.PARSE,
                     "event": "completed",
                     "source_uri": ls.source_uri,
                     "sections_count": len(doc.sections),
@@ -164,7 +185,7 @@ class Ingestor:
             )
             self._emit(
                 IngestProgressEvent(
-                    stage="parse",
+                    stage=PipelineStage.PARSE,
                     event="completed",
                     source_uri=ls.source_uri,
                     sections_count=len(doc.sections),
@@ -173,7 +194,7 @@ class Ingestor:
 
             self._emit(
                 IngestProgressEvent(
-                    stage="chunk",
+                    stage=PipelineStage.CHUNK,
                     event="started",
                     source_uri=ls.source_uri,
                 )
@@ -189,7 +210,7 @@ class Ingestor:
                     ls.source_uri,
                     type(exc).__name__,
                     extra={
-                        "stage": "chunk",
+                        "stage": PipelineStage.CHUNK,
                         "event": "failed",
                         "source_uri": ls.source_uri,
                         "error_type": type(exc).__name__,
@@ -197,7 +218,7 @@ class Ingestor:
                 )
                 self._emit(
                     IngestProgressEvent(
-                        stage="chunk",
+                        stage=PipelineStage.CHUNK,
                         event="failed",
                         source_uri=ls.source_uri,
                         error_type=type(exc).__name__,
@@ -209,7 +230,7 @@ class Ingestor:
 
             self._emit(
                 IngestProgressEvent(
-                    stage="chunk",
+                    stage=PipelineStage.CHUNK,
                     event="completed",
                     source_uri=ls.source_uri,
                     chunks_count=len(doc.chunks),
@@ -219,14 +240,14 @@ class Ingestor:
 
         parse_elapsed = (time.perf_counter() - parse_start) * 1000 - chunk_elapsed_total
         parse_report = IngestStageReport(
-            stage="parse",
+            stage=PipelineStage.PARSE,
             elapsed_ms=parse_elapsed,
             input_count=len(loaded_sources),
             output_count=parsed_count,
             failed_count=len(parse_failed_uris),
         )
         chunk_report = IngestStageReport(
-            stage="chunk",
+            stage=PipelineStage.CHUNK,
             elapsed_ms=chunk_elapsed_total,
             input_count=parsed_count,
             output_count=len(documents),
@@ -241,21 +262,33 @@ class Ingestor:
         sink_name: str | None = None
         sink_report: IngestStageReport | None = None
 
+        run_manifest = RunManifest(
+            run_id=uuid.uuid4(),
+            scope=run_scope,
+            source_uris_seen=tuple(ls.source_uri for ls in loaded_sources),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
         if self._sink is not None:
             sink_start = time.perf_counter()
             sink_name = type(self._sink).__name__
             self._emit(
-                IngestProgressEvent(stage="sink", event="started", sink_name=sink_name)
+                IngestProgressEvent(
+                    stage=PipelineStage.PERSIST, event="started", sink_name=sink_name
+                )
             )
             try:
-                sink_result = self._sink.upsert(documents)
+                sink_result = self._sink.upsert(documents, run_id=run_manifest.run_id)
+                record_run = getattr(self._sink, "record_run", None)
+                if callable(record_run):
+                    _ = record_run(run_manifest)
                 persisted = True
             except Exception as exc:
                 self._logger.error(
                     "Sink failed: %s",
                     type(exc).__name__,
                     extra={
-                        "stage": "sink",
+                        "stage": PipelineStage.PERSIST,
                         "event": "failed",
                         "sink_name": sink_name,
                         "error_type": type(exc).__name__,
@@ -263,7 +296,7 @@ class Ingestor:
                 )
                 self._emit(
                     IngestProgressEvent(
-                        stage="sink",
+                        stage=PipelineStage.PERSIST,
                         event="failed",
                         sink_name=sink_name,
                         error_type=type(exc).__name__,
@@ -271,7 +304,7 @@ class Ingestor:
                 )
                 self._emit(
                     IngestProgressEvent(
-                        stage="run",
+                        stage=PipelineStage.RUN,
                         event="failed",
                         error_type=type(exc).__name__,
                     )
@@ -281,11 +314,15 @@ class Ingestor:
 
             for uri in sink_result.skipped_source_uris:
                 self._emit(
-                    IngestProgressEvent(stage="sink", event="skipped", source_uri=uri)
+                    IngestProgressEvent(
+                        stage=PipelineStage.PERSIST, event="skipped", source_uri=uri
+                    )
                 )
             for uri in sink_result.updated_source_uris:
                 self._emit(
-                    IngestProgressEvent(stage="sink", event="updated", source_uri=uri)
+                    IngestProgressEvent(
+                        stage=PipelineStage.PERSIST, event="updated", source_uri=uri
+                    )
                 )
 
             self._logger.info(
@@ -293,7 +330,7 @@ class Ingestor:
                 len(sink_result.updated_source_uris),
                 len(sink_result.skipped_source_uris),
                 extra={
-                    "stage": "sink",
+                    "stage": PipelineStage.PERSIST,
                     "event": "completed",
                     "sink_name": sink_name,
                     "updated_count": len(sink_result.updated_source_uris),
@@ -302,14 +339,14 @@ class Ingestor:
             )
             self._emit(
                 IngestProgressEvent(
-                    stage="sink",
+                    stage=PipelineStage.PERSIST,
                     event="completed",
                     sink_name=sink_name,
                     elapsed_ms=sink_elapsed,
                 )
             )
             sink_report = IngestStageReport(
-                stage="sink",
+                stage=PipelineStage.PERSIST,
                 elapsed_ms=sink_elapsed,
                 input_count=len(documents),
                 output_count=len(sink_result.updated_source_uris)
@@ -319,13 +356,15 @@ class Ingestor:
         # --- Run report ---
         run_elapsed = (time.perf_counter() - run_start) * 1000
         stage_reports_list: list[IngestStageReport] = [
-            load_report, parse_report, chunk_report,
+            load_report,
+            parse_report,
+            chunk_report,
         ]
         if sink_report is not None:
             stage_reports_list.append(sink_report)
 
         run_report = IngestStageReport(
-            stage="run",
+            stage=PipelineStage.RUN,
             elapsed_ms=run_elapsed,
             input_count=len(loaded_sources),
             output_count=len(documents),
@@ -338,7 +377,7 @@ class Ingestor:
             len(documents),
             len(all_failed_uris),
             extra={
-                "stage": "run",
+                "stage": PipelineStage.RUN,
                 "event": "completed",
                 "processed_count": len(documents),
                 "failed_count": len(all_failed_uris),
@@ -346,7 +385,7 @@ class Ingestor:
         )
         self._emit(
             IngestProgressEvent(
-                stage="run",
+                stage=PipelineStage.RUN,
                 event="completed",
                 total=len(loaded_sources),
                 elapsed_ms=run_elapsed,
@@ -367,6 +406,7 @@ class Ingestor:
             stage_reports=tuple(stage_reports_list),
             persisted=persisted,
             sink_name=sink_name,
+            run_manifest=run_manifest,
         )
 
     def _resolve_source(self, source: str | Path | None) -> str | Path:
@@ -381,35 +421,35 @@ class Ingestor:
     @staticmethod
     def _loader_from_config(config: DocPrepConfig | None) -> Loader:
         if config is not None and config.loader is not None:
-            from docprep.registry import build_loader
+            from .registry import build_loader
 
             return build_loader(config.loader)
-        from docprep.loaders.markdown import MarkdownLoader
+        from .loaders.markdown import MarkdownLoader
 
         return MarkdownLoader()
 
     @staticmethod
     def _parser_from_config(config: DocPrepConfig | None) -> Parser:
         if config is not None and config.parser is not None:
-            from docprep.registry import build_parser
+            from .registry import build_parser
 
             return build_parser(config.parser)
-        from docprep.parsers.markdown import MarkdownParser
+        from .parsers.multi import MultiFormatParser
 
-        return MarkdownParser()
+        return MultiFormatParser()
 
     @staticmethod
     def _chunkers_from_config(config: DocPrepConfig | None) -> Sequence[Chunker]:
         if config is not None and config.chunkers is not None:
-            from docprep.registry import build_chunkers
+            from .registry import build_chunkers
 
             return build_chunkers(config.chunkers)
-        return [HeadingChunker()]
+        return DEFAULT_CHUNKERS
 
     @staticmethod
     def _sink_from_config(config: DocPrepConfig | None) -> Sink | None:
         if config is not None and config.sink is not None:
-            from docprep.registry import build_sink
+            from .registry import build_sink
 
             return build_sink(config.sink)
         return None
@@ -423,6 +463,7 @@ def ingest(
     parser: Parser | None = None,
     chunkers: Sequence[Chunker] | None = None,
     sink: Sink | None = None,
+    scope: SourceScope | None = None,
     logger: logging.Logger | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> IngestResult:
@@ -432,6 +473,7 @@ def ingest(
         parser=parser,
         chunkers=chunkers,
         sink=sink,
+        scope=scope,
         logger=logger,
         progress_callback=progress_callback,
     ).run(source)

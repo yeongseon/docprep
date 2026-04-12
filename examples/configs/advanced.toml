@@ -1,0 +1,34 @@
+# Advanced config: multi-format loading with explicit parser and export settings.
+source = "content/"
+
+# Use JSON output by default for all CLI commands.
+json = false
+
+[loader]
+type = "filesystem"
+include_globs = ["**/*.md", "**/*.txt", "**/*.html", "**/*.rst"]
+exclude_globs = ["**/drafts/**", "**/node_modules/**"]
+hidden_policy = "skip"       # "skip" or "include"
+symlink_policy = "follow"    # "follow" or "skip"
+encoding = "utf-8"
+encoding_errors = "strict"
+
+[parser]
+type = "auto"                # auto-detects by media type
+
+[[chunkers]]
+type = "heading"
+
+[[chunkers]]
+type = "token"
+max_tokens = 512
+overlap_tokens = 64
+tokenizer = "whitespace"     # "whitespace" or "character"
+
+[sink]
+type = "sqlalchemy"
+database_url = "postgresql://user:pass@localhost:5432/docs"
+create_tables = true
+
+[export]
+text_prepend = "title_and_heading_path"  # "none", "title_only", "heading_path", or "title_and_heading_path"

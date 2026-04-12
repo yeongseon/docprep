@@ -6,16 +6,26 @@ import uuid
 
 from docprep.chunkers.heading import HeadingChunker
 from docprep.chunkers.size import SizeChunker
+from docprep.chunkers.token import TokenChunker
 from docprep.config import (
+    AutoParserConfig,
+    FileSystemLoaderConfig,
     HeadingChunkerConfig,
+    HtmlParserConfig,
     MarkdownLoaderConfig,
     MarkdownParserConfig,
+    PlainTextParserConfig,
     SizeChunkerConfig,
     SQLAlchemySinkConfig,
+    TokenChunkerConfig,
 )
+from docprep.loaders.filesystem import FileSystemLoader
 from docprep.loaders.markdown import MarkdownLoader
 from docprep.models.domain import Document, Section
+from docprep.parsers.html import HtmlParser
 from docprep.parsers.markdown import MarkdownParser
+from docprep.parsers.multi import MultiFormatParser
+from docprep.parsers.plaintext import PlainTextParser
 from docprep.registry import (
     BUILTIN_CHUNKERS,
     BUILTIN_LOADERS,
@@ -31,9 +41,18 @@ from docprep.sinks.sqlalchemy import SQLAlchemySink
 
 
 def test_builtin_registry_dicts_expose_expected_components() -> None:
-    assert BUILTIN_LOADERS == {"markdown": MarkdownLoader}
-    assert BUILTIN_PARSERS == {"markdown": MarkdownParser}
-    assert BUILTIN_CHUNKERS == {"heading": HeadingChunker, "size": SizeChunker}
+    assert BUILTIN_LOADERS == {"markdown": MarkdownLoader, "filesystem": FileSystemLoader}
+    assert BUILTIN_PARSERS == {
+        "markdown": MarkdownParser,
+        "plaintext": PlainTextParser,
+        "html": HtmlParser,
+        "auto": MultiFormatParser,
+    }
+    assert BUILTIN_CHUNKERS == {
+        "heading": HeadingChunker,
+        "size": SizeChunker,
+        "token": TokenChunker,
+    }
     assert BUILTIN_SINKS == {"sqlalchemy": "docprep.sinks.sqlalchemy.SQLAlchemySink"}
 
 
@@ -57,6 +76,18 @@ def test_build_parser_returns_markdown_parser() -> None:
     parser = build_parser(MarkdownParserConfig())
 
     assert isinstance(parser, MarkdownParser)
+
+
+def test_build_loader_returns_filesystem_loader_for_filesystem_config() -> None:
+    loader = build_loader(FileSystemLoaderConfig(include_globs=("**/*.txt",)))
+
+    assert isinstance(loader, FileSystemLoader)
+
+
+def test_build_parser_supports_all_parser_config_types() -> None:
+    assert isinstance(build_parser(PlainTextParserConfig()), PlainTextParser)
+    assert isinstance(build_parser(HtmlParserConfig()), HtmlParser)
+    assert isinstance(build_parser(AutoParserConfig()), MultiFormatParser)
 
 
 def test_build_chunker_returns_heading_chunker_for_heading_config() -> None:
@@ -100,6 +131,29 @@ def test_build_chunkers_returns_tuple_of_chunkers_in_order() -> None:
     assert [type(chunker) for chunker in chunkers] == [HeadingChunker, SizeChunker]
     chunked = chunkers[1].chunk(chunkers[0].chunk(parsed))
     assert len(chunked.chunks) == 2
+
+
+def test_build_chunker_returns_token_chunker_for_token_config() -> None:
+    chunker = build_chunker(
+        TokenChunkerConfig(max_tokens=2, overlap_tokens=1, tokenizer="character")
+    )
+    document = Document(
+        id=uuid.uuid4(),
+        source_uri="guide.md",
+        title="Guide",
+        source_checksum="checksum",
+        sections=(
+            Section(
+                id=uuid.uuid4(),
+                document_id=uuid.uuid4(),
+                order_index=0,
+                content_markdown="abcd",
+            ),
+        ),
+    )
+
+    assert isinstance(chunker, TokenChunker)
+    assert [chunk.content_text for chunk in chunker.chunk(document).chunks] == ["ab", "bcd"]
 
 
 def test_build_sink_returns_sqlalchemy_sink_with_created_engine() -> None:

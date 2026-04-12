@@ -1,0 +1,16 @@
+# Standard config: ingest Markdown docs into SQLite with heading + token chunking.
+source = "docs/"
+
+[sink]
+type = "sqlalchemy"
+database_url = "sqlite:///docs.db"
+create_tables = true
+
+[[chunkers]]
+type = "heading"
+
+[[chunkers]]
+type = "token"
+max_tokens = 512
+overlap_tokens = 64
+tokenizer = "whitespace"

@@ -8,8 +8,24 @@ import pytest
 from sqlalchemy import create_engine, inspect
 
 from docprep.exceptions import MetadataError
-from docprep.models.domain import Chunk, Document, Section
-from docprep.sinks.orm import Base, domain_to_row, row_to_domain
+from docprep.models.domain import (
+    Chunk,
+    Document,
+    DocumentRevision,
+    RunManifest,
+    Section,
+    SourceScope,
+)
+from docprep.sinks.orm import (
+    Base,
+    DocumentRevisionRow,
+    domain_to_row,
+    revision_from_document,
+    row_to_domain,
+    row_to_revision,
+    row_to_run_manifest,
+    run_manifest_to_row,
+)
 
 
 def _document() -> Document:
@@ -31,6 +47,9 @@ def _document() -> Document:
         order_index=0,
         section_chunk_index=0,
         content_text="Body",
+        char_start=0,
+        char_end=4,
+        token_count=1,
         heading_path=("Intro",),
         lineage=("lineage",),
     )
@@ -133,6 +152,77 @@ def test_tables_are_created_correctly() -> None:
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
 
-    assert set(inspector.get_table_names()) == {"chunks", "documents", "sections"}
+    assert set(inspector.get_table_names()) == {
+        "chunks",
+        "document_revisions",
+        "documents",
+        "docprep_meta",
+        "ingestion_runs",
+        "sections",
+    }
     document_columns = {column["name"] for column in inspector.get_columns("documents")}
-    assert {"id", "source_uri", "title", "source_checksum"}.issubset(document_columns)
+    revision_columns = {column["name"] for column in inspector.get_columns("document_revisions")}
+    section_columns = {column["name"] for column in inspector.get_columns("sections")}
+    chunk_columns = {column["name"] for column in inspector.get_columns("chunks")}
+
+    assert {
+        "id",
+        "document_id",
+        "source_uri",
+        "source_checksum",
+        "revision_number",
+        "ingestion_run_id",
+        "section_anchors",
+        "chunk_anchors",
+        "section_hashes",
+        "chunk_hashes",
+        "is_current",
+        "timestamp",
+    }.issubset(revision_columns)
+    assert {
+        "id",
+        "source_uri",
+        "title",
+        "source_checksum",
+        "identity_version",
+    }.issubset(document_columns)
+    assert {"anchor", "content_hash"}.issubset(section_columns)
+    assert {"anchor", "content_hash", "char_start", "char_end", "token_count"}.issubset(
+        chunk_columns
+    )
+
+
+def test_run_manifest_row_round_trip() -> None:
+    manifest = RunManifest(
+        run_id=uuid.uuid4(),
+        scope=SourceScope(prefixes=("file:docs/api/",), explicit=True),
+        source_uris_seen=("file:docs/api/guide.md",),
+        timestamp="2026-01-01T00:00:00+00:00",
+    )
+
+    row = run_manifest_to_row(manifest)
+    converted = row_to_run_manifest(row)
+
+    assert converted == manifest
+
+
+def test_revision_from_document_and_row_round_trip() -> None:
+    document = _document()
+    run_id = uuid.uuid4()
+
+    row = revision_from_document(
+        document,
+        revision_number=1,
+        run_id=run_id,
+        timestamp="2026-01-01T00:00:00+00:00",
+    )
+    converted = row_to_revision(row)
+
+    assert isinstance(converted, DocumentRevision)
+    assert isinstance(row, DocumentRevisionRow)
+    assert converted.document_id == document.id
+    assert converted.source_uri == document.source_uri
+    assert converted.source_checksum == document.source_checksum
+    assert converted.revision_number == 1
+    assert converted.ingestion_run_id == run_id
+    assert converted.timestamp == "2026-01-01T00:00:00+00:00"

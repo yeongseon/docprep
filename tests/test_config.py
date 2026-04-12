@@ -5,12 +5,18 @@ from pathlib import Path
 import pytest
 
 from docprep.config import (
+    AutoParserConfig,
     DocPrepConfig,
+    ExportConfig,
+    FileSystemLoaderConfig,
     HeadingChunkerConfig,
+    HtmlParserConfig,
     MarkdownLoaderConfig,
     MarkdownParserConfig,
+    PlainTextParserConfig,
     SizeChunkerConfig,
     SQLAlchemySinkConfig,
+    TokenChunkerConfig,
     discover_config_path,
     load_config,
     load_discovered_config,
@@ -26,14 +32,38 @@ def _write_config(tmp_path: Path, content: str, *, name: str = "docprep.toml") -
 
 def test_config_dataclass_defaults_are_expected() -> None:
     assert MarkdownLoaderConfig() == MarkdownLoaderConfig(type="markdown", glob_pattern="**/*.md")
+    assert FileSystemLoaderConfig() == FileSystemLoaderConfig(
+        type="filesystem",
+        include_globs=("**/*.md", "**/*.txt", "**/*.html", "**/*.htm"),
+        exclude_globs=(),
+        hidden_policy="skip",
+        symlink_policy="follow",
+        encoding="utf-8",
+        encoding_errors="strict",
+    )
     assert MarkdownParserConfig() == MarkdownParserConfig(type="markdown")
+    assert PlainTextParserConfig() == PlainTextParserConfig(type="plaintext")
+    assert HtmlParserConfig() == HtmlParserConfig(type="html")
+    assert AutoParserConfig() == AutoParserConfig(type="auto")
     assert HeadingChunkerConfig() == HeadingChunkerConfig(type="heading")
-    assert SizeChunkerConfig() == SizeChunkerConfig(type="size", max_chars=1500)
+    assert SizeChunkerConfig() == SizeChunkerConfig(
+        type="size",
+        max_chars=1500,
+        overlap_chars=0,
+        min_chars=0,
+    )
+    assert TokenChunkerConfig() == TokenChunkerConfig(
+        type="token",
+        max_tokens=512,
+        overlap_tokens=0,
+        tokenizer="whitespace",
+    )
     assert SQLAlchemySinkConfig(database_url="sqlite:///docs.db") == SQLAlchemySinkConfig(
         type="sqlalchemy",
         database_url="sqlite:///docs.db",
         create_tables=True,
     )
+    assert ExportConfig() == ExportConfig(text_prepend="title_and_heading_path")
 
 
 @pytest.mark.parametrize(
@@ -101,6 +131,14 @@ type = "heading"
 [[chunkers]]
 type = "size"
 max_chars = 250
+overlap_chars = 25
+min_chars = 10
+
+[[chunkers]]
+type = "token"
+max_tokens = 64
+overlap_tokens = 8
+tokenizer = "character"
 
 [sink]
 type = "sqlalchemy"
@@ -117,7 +155,11 @@ create_tables = false
         json=True,
         loader=MarkdownLoaderConfig(glob_pattern="content/**/*.md"),
         parser=MarkdownParserConfig(),
-        chunkers=(HeadingChunkerConfig(), SizeChunkerConfig(max_chars=250)),
+        chunkers=(
+            HeadingChunkerConfig(),
+            SizeChunkerConfig(max_chars=250, overlap_chars=25, min_chars=10),
+            TokenChunkerConfig(max_tokens=64, overlap_tokens=8, tokenizer="character"),
+        ),
         sink=SQLAlchemySinkConfig(database_url="sqlite:///docs.db", create_tables=False),
         config_path=config_path,
     )
@@ -204,6 +246,34 @@ def test_load_config_rejects_unknown_keys(tmp_path: Path, content: str, match: s
             r"chunkers\[0\]\.max_chars: expected integer >= 1",
         ),
         (
+            "[[chunkers]]\ntype = 'size'\noverlap_chars = -1\n",
+            r"chunkers\[0\]\.overlap_chars: expected integer >= 0",
+        ),
+        (
+            "[[chunkers]]\ntype = 'size'\nmin_chars = -1\n",
+            r"chunkers\[0\]\.min_chars: expected integer >= 0",
+        ),
+        (
+            "[[chunkers]]\ntype = 'size'\nmax_chars = 10\noverlap_chars = 10\n",
+            r"chunkers\[0\]\.overlap_chars: expected integer < max_chars",
+        ),
+        (
+            "[[chunkers]]\ntype = 'token'\nmax_tokens = 0\n",
+            r"chunkers\[0\]\.max_tokens: expected integer >= 1",
+        ),
+        (
+            "[[chunkers]]\ntype = 'token'\noverlap_tokens = -1\n",
+            r"chunkers\[0\]\.overlap_tokens: expected integer >= 0",
+        ),
+        (
+            "[[chunkers]]\ntype = 'token'\nmax_tokens = 10\noverlap_tokens = 10\n",
+            r"chunkers\[0\]\.overlap_tokens: expected integer < max_tokens",
+        ),
+        (
+            "[[chunkers]]\ntype = 'token'\ntokenizer = 'bpe'\n",
+            r"chunkers\[0\]\.tokenizer: expected one of character, whitespace",
+        ),
+        (
             "[sink]\ntype = 'sqlalchemy'\ndatabase_url = 123\n",
             "sink.database_url: expected string, got int",
         ),
@@ -245,7 +315,7 @@ def test_load_config_rejects_missing_required_keys(
     ("content", "match"),
     [
         ("[loader]\ntype = 'html'\n", "loader: unknown component type 'html'"),
-        ("[parser]\ntype = 'html'\n", "parser: unknown component type 'html'"),
+        ("[parser]\ntype = 'xml'\n", "parser: unknown component type 'xml'"),
         ("[[chunkers]]\ntype = 'words'\n", r"chunkers\[0\]: unknown component type 'words'"),
         ("[sink]\ntype = 'memory'\n", "sink: unknown component type 'memory'"),
     ],
@@ -300,6 +370,14 @@ type = "heading"
 [[chunkers]]
 type = "size"
 max_chars = 321
+overlap_chars = 32
+min_chars = 8
+
+[[chunkers]]
+type = "token"
+max_tokens = 128
+overlap_tokens = 16
+tokenizer = "whitespace"
 
 [sink]
 type = "sqlalchemy"
@@ -316,7 +394,11 @@ create_tables = true
     assert config.json is False
     assert config.loader == MarkdownLoaderConfig(glob_pattern="guides/**/*.md")
     assert config.parser == MarkdownParserConfig()
-    assert config.chunkers == (HeadingChunkerConfig(), SizeChunkerConfig(max_chars=321))
+    assert config.chunkers == (
+        HeadingChunkerConfig(),
+        SizeChunkerConfig(max_chars=321, overlap_chars=32, min_chars=8),
+        TokenChunkerConfig(max_tokens=128, overlap_tokens=16, tokenizer="whitespace"),
+    )
     assert config.sink == SQLAlchemySinkConfig(
         database_url="sqlite:///roundtrip.db",
         create_tables=True,
@@ -324,11 +406,62 @@ create_tables = true
     assert config.config_path == config_path
 
 
+def test_export_section_parsed(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+[export]
+text_prepend = "title_only"
+""".strip()
+        + "\n",
+    )
+
+    config = load_config(config_path)
+
+    assert config.export == ExportConfig(text_prepend="title_only")
+
+
 def test_load_config_rejects_bool_for_max_chars(tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, "[[chunkers]]\ntype = 'size'\nmax_chars = true\n")
 
     with pytest.raises(ConfigError, match=r"chunkers\[0\]\.max_chars: expected integer >= 1"):
         _ = load_config(config_path)
+
+
+def test_load_config_rejects_bool_for_overlap_and_min_chars(tmp_path: Path) -> None:
+    overlap_path = _write_config(
+        tmp_path,
+        "[[chunkers]]\ntype = 'size'\noverlap_chars = true\n",
+        name="overlap.toml",
+    )
+    min_path = _write_config(
+        tmp_path,
+        "[[chunkers]]\ntype = 'size'\nmin_chars = true\n",
+        name="min.toml",
+    )
+
+    with pytest.raises(ConfigError, match=r"chunkers\[0\]\.overlap_chars: expected integer >= 0"):
+        _ = load_config(overlap_path)
+    with pytest.raises(ConfigError, match=r"chunkers\[0\]\.min_chars: expected integer >= 0"):
+        _ = load_config(min_path)
+
+
+def test_load_config_rejects_bool_for_token_chunker_fields(tmp_path: Path) -> None:
+    max_path = _write_config(
+        tmp_path,
+        "[[chunkers]]\ntype = 'token'\nmax_tokens = true\n",
+        name="token-max.toml",
+    )
+    overlap_path = _write_config(
+        tmp_path,
+        "[[chunkers]]\ntype = 'token'\noverlap_tokens = true\n",
+        name="token-overlap.toml",
+    )
+
+    with pytest.raises(ConfigError, match=r"chunkers\[0\]\.max_tokens: expected integer >= 1"):
+        _ = load_config(max_path)
+    with pytest.raises(ConfigError, match=r"chunkers\[0\]\.overlap_tokens: expected integer >= 0"):
+        _ = load_config(overlap_path)
 
 
 def test_load_config_wraps_os_error_as_config_error(tmp_path: Path) -> None:
@@ -354,4 +487,62 @@ def test_load_config_empty_file_returns_all_none_config(tmp_path: Path) -> None:
     assert config.parser is None
     assert config.chunkers is None
     assert config.sink is None
+    assert config.export is None
     assert config.config_path == config_path
+
+
+def test_load_config_parses_filesystem_loader_and_auto_parser(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+[loader]
+type = "filesystem"
+include_globs = ["content/**/*.md", "content/**/*.txt"]
+exclude_globs = ["content/drafts/**"]
+hidden_policy = "include"
+symlink_policy = "skip"
+encoding = "latin-1"
+encoding_errors = "replace"
+
+[parser]
+type = "auto"
+""".strip()
+        + "\n",
+    )
+
+    config = load_config(config_path)
+
+    assert config.loader == FileSystemLoaderConfig(
+        include_globs=("content/**/*.md", "content/**/*.txt"),
+        exclude_globs=("content/drafts/**",),
+        hidden_policy="include",
+        symlink_policy="skip",
+        encoding="latin-1",
+        encoding_errors="replace",
+    )
+    assert config.parser == AutoParserConfig()
+
+
+def test_load_config_rejects_invalid_filesystem_loader_values(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+[loader]
+type = "filesystem"
+include_globs = "**/*.md"
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ConfigError, match="loader.include_globs: expected array of strings"):
+        _ = load_config(config_path)
+
+
+def test_load_config_accepts_plaintext_and_html_parser_types(tmp_path: Path) -> None:
+    plaintext_path = _write_config(
+        tmp_path, "[parser]\ntype = 'plaintext'\n", name="plaintext.toml"
+    )
+    html_path = _write_config(tmp_path, "[parser]\ntype = 'html'\n", name="html.toml")
+
+    assert load_config(plaintext_path).parser == PlainTextParserConfig()
+    assert load_config(html_path).parser == HtmlParserConfig()
