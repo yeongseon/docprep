@@ -33,3 +33,6 @@ dist/
 
 # Sisyphus agent state
 .sisyphus/
+
+# docprep checkpoints
+.docprep-checkpoint.json

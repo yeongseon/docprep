@@ -355,8 +355,16 @@ def test_ingest_command_accepts_workers_flag(
         def __init__(self, **kwargs: object) -> None:
             del kwargs
 
-        def run(self, source: object, workers: int = 1) -> IngestResult:
+        def run(
+            self,
+            source: object,
+            workers: int = 1,
+            resume: bool = False,
+            checkpoint_path: str | None = None,
+        ) -> IngestResult:
             del source
+            del resume
+            del checkpoint_path
             captured_workers.append(workers)
             return IngestResult(documents=(), processed_count=1)
 
@@ -377,9 +385,17 @@ def test_ingest_command_returns_partial_success_exit_code(
         def __init__(self, **kwargs: object) -> None:
             del kwargs
 
-        def run(self, source: object, workers: int = 1) -> IngestResult:
+        def run(
+            self,
+            source: object,
+            workers: int = 1,
+            resume: bool = False,
+            checkpoint_path: str | None = None,
+        ) -> IngestResult:
             del source
             del workers
+            del resume
+            del checkpoint_path
             return IngestResult(
                 documents=(),
                 processed_count=1,
@@ -411,9 +427,17 @@ def test_ingest_command_returns_failure_exit_code_when_all_failed(
         def __init__(self, **kwargs: object) -> None:
             del kwargs
 
-        def run(self, source: object, workers: int = 1) -> IngestResult:
+        def run(
+            self,
+            source: object,
+            workers: int = 1,
+            resume: bool = False,
+            checkpoint_path: str | None = None,
+        ) -> IngestResult:
             del source
             del workers
+            del resume
+            del checkpoint_path
             return IngestResult(
                 documents=(),
                 processed_count=0,
@@ -436,3 +460,40 @@ def test_ingest_command_returns_failure_exit_code_when_all_failed(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "Failed: 1" in captured.out
+
+
+def test_cli_ingest_resume_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_resume: list[bool] = []
+    captured_checkpoint_path: list[str | None] = []
+
+    class FakeIngestor:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        def run(
+            self,
+            source: object,
+            workers: int = 1,
+            resume: bool = False,
+            checkpoint_path: str | None = None,
+        ) -> IngestResult:
+            del source
+            del workers
+            captured_resume.append(resume)
+            captured_checkpoint_path.append(checkpoint_path)
+            return IngestResult(documents=(), processed_count=1)
+
+    ingest_module = importlib.import_module("docprep.ingest")
+    monkeypatch.setattr(ingest_module, "Ingestor", FakeIngestor)
+
+    exit_code = cli_main.main(
+        ["ingest", "docs", "--resume", "--checkpoint-path", "/tmp/custom-checkpoint.json"]
+    )
+
+    _ = capsys.readouterr()
+    assert exit_code == 0
+    assert captured_resume == [True]
+    assert captured_checkpoint_path == ["/tmp/custom-checkpoint.json"]

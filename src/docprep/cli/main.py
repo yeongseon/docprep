@@ -83,6 +83,19 @@ def _add_ingest_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         help="Error handling mode (default: continue_on_error)",
     )
     p.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help="Resume from last checkpoint, skipping unchanged sources",
+    )
+    p.add_argument(
+        "--checkpoint-path",
+        default=None,
+        metavar="PATH",
+        dest="checkpoint_path",
+        help="Path to checkpoint file (default: .docprep-checkpoint.json)",
+    )
+    p.add_argument(
         "--workers",
         type=int,
         default=1,
@@ -275,7 +288,12 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         logger=logger,
         error_mode=ErrorMode(args.error_mode),
     )
-    result = ingestor.run(source, workers=args.workers)
+    result = ingestor.run(
+        source,
+        workers=args.workers,
+        resume=args.resume,
+        checkpoint_path=args.checkpoint_path,
+    )
     print(format_ingest_result(result, as_json=as_json))
     if result.failed_count > 0 and result.processed_count > 0:
         return 3

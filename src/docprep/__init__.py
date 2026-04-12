@@ -10,6 +10,7 @@ from typing import cast
 __version__ = "0.1.0"
 
 from .adapters.protocol import Adapter
+from .checkpoint import CheckpointStore
 from .chunkers.token import TokenChunker
 from .config import DocPrepConfig, ExportConfig, load_config, load_discovered_config
 from .diff import compute_diff, compute_diff_from_documents
@@ -190,6 +191,7 @@ __all__ = [
     "SyncResult",
     "TextPrependStrategy",
     "TokenChunker",
+    "CheckpointStore",
     "VectorRecord",
     "VectorRecordV1",
 ]
