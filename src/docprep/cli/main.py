@@ -75,6 +75,13 @@ def _add_ingest_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         dest="log_level",
         help="Log verbosity level (default: info)",
     )
+    p.add_argument(
+        "--error-mode",
+        choices=["fail_fast", "continue_on_error"],
+        default="continue_on_error",
+        dest="error_mode",
+        help="Error handling mode (default: continue_on_error)",
+    )
     _add_json_group(p)
 
 
@@ -209,6 +216,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     from docprep.cli.logging import setup_cli_logger
     from docprep.config import DocPrepConfig
     from docprep.ingest import DEFAULT_CHUNKERS, Ingestor
+    from docprep.models.domain import ErrorMode
     from docprep.registry import build_chunkers, build_loader, build_parser
 
     _load_cli_config(args)
@@ -253,10 +261,19 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         source = resolved
 
     ingestor = Ingestor(
-        loader=loader, parser=parser, chunkers=chunkers_list, sink=sink, logger=logger
+        loader=loader,
+        parser=parser,
+        chunkers=chunkers_list,
+        sink=sink,
+        logger=logger,
+        error_mode=ErrorMode(args.error_mode),
     )
     result = ingestor.run(source)
     print(format_ingest_result(result, as_json=as_json))
+    if result.failed_count > 0 and result.processed_count > 0:
+        return 3
+    if result.errors and result.processed_count == 0:
+        return 1
     return 0
 
 

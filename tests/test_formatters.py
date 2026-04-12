@@ -8,6 +8,7 @@ from docprep.cli.formatters import format_ingest_result, format_preview, format_
 from docprep.models.domain import (
     Chunk,
     Document,
+    DocumentError,
     IngestResult,
     IngestStageReport,
     PipelineStage,
@@ -139,6 +140,56 @@ def test_format_ingest_result_includes_failed_count() -> None:
     result = IngestResult(documents=(), processed_count=0, failed_count=2)
 
     assert format_ingest_result(result) == "Ingested 0 document(s)\n  Processed: 0\n  Failed: 2"
+
+
+def test_format_ingest_result_includes_structured_errors() -> None:
+    result = IngestResult(
+        documents=(),
+        processed_count=0,
+        failed_count=1,
+        errors=(
+            DocumentError(
+                source_uri="docs/example.md",
+                stage=PipelineStage.PARSE,
+                error_type="RuntimeError",
+                message="bad parse",
+            ),
+        ),
+    )
+
+    assert format_ingest_result(result) == (
+        "Ingested 0 document(s)\n"
+        "  Processed: 0\n"
+        "  Failed: 1\n"
+        "  Errors:\n"
+        "    [parse] docs/example.md: RuntimeError: bad parse"
+    )
+
+
+def test_format_ingest_result_json_includes_structured_errors() -> None:
+    result = IngestResult(
+        documents=(),
+        processed_count=0,
+        failed_count=1,
+        errors=(
+            DocumentError(
+                source_uri="docs/example.md",
+                stage=PipelineStage.PARSE,
+                error_type="RuntimeError",
+                message="bad parse",
+            ),
+        ),
+    )
+
+    payload = json.loads(format_ingest_result(result, as_json=True))
+    assert payload["errors"] == [
+        {
+            "source_uri": "docs/example.md",
+            "stage": "parse",
+            "error_type": "RuntimeError",
+            "message": "bad parse",
+        }
+    ]
 
 
 def test_format_preview_text_output() -> None:

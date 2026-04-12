@@ -6,7 +6,15 @@ from dataclasses import asdict
 import json
 from typing import Any
 
-from docprep.models.domain import Chunk, DeleteResult, Document, IngestResult, RevisionDiff, Section
+from docprep.models.domain import (
+    Chunk,
+    DeleteResult,
+    Document,
+    DocumentError,
+    IngestResult,
+    RevisionDiff,
+    Section,
+)
 
 
 def format_ingest_result(result: IngestResult, *, as_json: bool = False) -> str:
@@ -22,6 +30,12 @@ def format_ingest_result(result: IngestResult, *, as_json: bool = False) -> str:
         lines.append(f"  Skipped (unchanged): {result.skipped_count}")
     if result.failed_count:
         lines.append(f"  Failed: {result.failed_count}")
+    if result.errors:
+        lines.append("  Errors:")
+        for error in result.errors:
+            lines.append(
+                f"    [{error.stage.value}] {error.source_uri}: {error.error_type}: {error.message}"
+            )
     if result.deleted_count:
         lines.append(f"  Deleted: {result.deleted_count}")
     if result.persisted:
@@ -240,7 +254,18 @@ def _ingest_result_to_dict(result: IngestResult) -> dict[str, Any]:
             }
             for r in result.stage_reports
         ]
+    if result.errors:
+        data["errors"] = [_document_error_to_dict(error) for error in result.errors]
     return data
+
+
+def _document_error_to_dict(error: DocumentError) -> dict[str, str]:
+    return {
+        "source_uri": error.source_uri,
+        "stage": error.stage.value,
+        "error_type": error.error_type,
+        "message": error.message,
+    }
 
 
 def _document_preview_dict(doc: Document) -> dict[str, Any]:

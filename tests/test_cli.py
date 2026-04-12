@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import importlib
 import json
 from pathlib import Path
 import runpy
@@ -12,6 +13,7 @@ import pytest
 import docprep
 from docprep.cli import main as cli_main
 from docprep.exceptions import DocPrepError
+from docprep.models.domain import DocumentError, IngestResult, PipelineStage
 
 
 def _reset_ingest_logger() -> None:
@@ -327,3 +329,83 @@ def test_ingest_command_uses_error_log_level(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured.err == ""
+
+
+def test_ingest_command_accepts_error_mode_flag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _reset_ingest_logger()
+    path = tmp_path / "guide.md"
+    _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
+
+    exit_code = cli_main.main(["ingest", str(path), "--error-mode", "fail_fast"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Ingested 1 document(s)" in captured.out
+
+
+def test_ingest_command_returns_partial_success_exit_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class FakeIngestor:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        def run(self, source: object) -> IngestResult:
+            del source
+            return IngestResult(
+                documents=(),
+                processed_count=1,
+                failed_count=1,
+                failed_source_uris=("docs/bad.md",),
+                errors=(
+                    DocumentError(
+                        source_uri="docs/bad.md",
+                        stage=PipelineStage.PARSE,
+                        error_type="RuntimeError",
+                        message="bad parse",
+                    ),
+                ),
+            )
+
+    ingest_module = importlib.import_module("docprep.ingest")
+    monkeypatch.setattr(ingest_module, "Ingestor", FakeIngestor)
+    exit_code = cli_main.main(["ingest", "docs"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 3
+    assert "Failed: 1" in captured.out
+
+
+def test_ingest_command_returns_failure_exit_code_when_all_failed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class FakeIngestor:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        def run(self, source: object) -> IngestResult:
+            del source
+            return IngestResult(
+                documents=(),
+                processed_count=0,
+                failed_count=1,
+                failed_source_uris=("docs/bad.md",),
+                errors=(
+                    DocumentError(
+                        source_uri="docs/bad.md",
+                        stage=PipelineStage.PARSE,
+                        error_type="RuntimeError",
+                        message="bad parse",
+                    ),
+                ),
+            )
+
+    ingest_module = importlib.import_module("docprep.ingest")
+    monkeypatch.setattr(ingest_module, "Ingestor", FakeIngestor)
+    exit_code = cli_main.main(["ingest", "docs"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Failed: 1" in captured.out
