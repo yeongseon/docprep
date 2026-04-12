@@ -21,6 +21,8 @@ from ._markdown import (
     _lstrip_index,
     _MarkdownContext,
     _rstrip_index,
+    extract_structural_annotations,
+    structure_types_for_range,
 )
 
 TokenCounter = Callable[[str], int]
@@ -69,6 +71,7 @@ class TokenChunker:
             if not text.strip():
                 continue
 
+            structural_annotations = extract_structural_annotations(text)
             ranges = self._split_ranges(text)
             dup_counts: dict[tuple[str, str], int] = {}
             previous_base_text = ""
@@ -92,6 +95,11 @@ class TokenChunker:
                 c_hash = compute_content_hash(fragment)
                 c_anchor = compute_chunk_anchor(section.anchor, c_hash, dup_counts)
                 cid = chunk_id(document.id, c_anchor)
+                structure_types = structure_types_for_range(
+                    structural_annotations,
+                    chunk_range.start,
+                    chunk_range.end,
+                )
                 all_chunks.append(
                     Chunk(
                         id=cid,
@@ -107,6 +115,7 @@ class TokenChunker:
                         token_count=self._count_tokens(fragment),
                         heading_path=section.heading_path,
                         lineage=section.lineage,
+                        structure_types=structure_types,
                     )
                 )
                 global_order += 1

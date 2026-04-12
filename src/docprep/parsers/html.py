@@ -4,6 +4,7 @@ from html.parser import HTMLParser
 from pathlib import PurePosixPath
 import re
 
+from ..chunkers._markdown import extract_structural_annotations
 from ..exceptions import ParseError
 from ..ids import document_id
 from ..loaders.types import LoadedSource
@@ -31,6 +32,12 @@ class _HtmlToMarkdownParser(HTMLParser):
 
         self._in_list_item = False
         self._list_item_buffer: list[str] = []
+
+        self._in_table = False
+        self._table_rows: list[list[str]] = []
+        self._current_table_row: list[str] | None = None
+        self._in_table_cell = False
+        self._table_cell_buffer: list[str] = []
 
         self._code_depth = 0
         self._pre_depth = 0
@@ -71,6 +78,24 @@ class _HtmlToMarkdownParser(HTMLParser):
             self._flush_free_text()
             self._in_list_item = True
             self._list_item_buffer = []
+            return
+
+        if tag == "table":
+            self._flush_free_text()
+            self._in_table = True
+            self._table_rows = []
+            self._current_table_row = None
+            self._in_table_cell = False
+            self._table_cell_buffer = []
+            return
+
+        if tag == "tr" and self._in_table:
+            self._current_table_row = []
+            return
+
+        if tag in {"th", "td"} and self._in_table and self._current_table_row is not None:
+            self._in_table_cell = True
+            self._table_cell_buffer = []
             return
 
         if tag in {"pre", "code"}:
@@ -124,6 +149,31 @@ class _HtmlToMarkdownParser(HTMLParser):
             self._list_item_buffer = []
             return
 
+        if tag in {"th", "td"} and self._in_table and self._in_table_cell:
+            text = self._normalize_block_text("".join(self._table_cell_buffer))
+            if self._current_table_row is not None:
+                self._current_table_row.append(text)
+            self._in_table_cell = False
+            self._table_cell_buffer = []
+            return
+
+        if tag == "tr" and self._in_table:
+            if self._current_table_row:
+                self._table_rows.append(self._current_table_row)
+            self._current_table_row = None
+            return
+
+        if tag == "table" and self._in_table:
+            table_markdown = self._table_to_markdown(self._table_rows)
+            if table_markdown:
+                self._append_block(table_markdown)
+            self._in_table = False
+            self._table_rows = []
+            self._current_table_row = None
+            self._in_table_cell = False
+            self._table_cell_buffer = []
+            return
+
         if tag == "pre" and self._pre_depth > 0:
             self._pre_depth -= 1
         elif tag == "code" and self._code_depth > 0:
@@ -139,6 +189,9 @@ class _HtmlToMarkdownParser(HTMLParser):
             return
         if self._in_title:
             self._title_buffer.append(data)
+            return
+        if self._in_table and self._in_table_cell:
+            self._table_cell_buffer.append(data)
             return
         if self._pre_depth > 0 or self._code_depth > 0:
             self._code_buffer.append(data)
@@ -194,6 +247,24 @@ class _HtmlToMarkdownParser(HTMLParser):
                 normalized_lines.append(compact)
         return "\n".join(normalized_lines)
 
+    def _table_to_markdown(self, rows: list[list[str]]) -> str:
+        if not rows:
+            return ""
+        header = rows[0]
+        column_count = len(header)
+        if column_count == 0:
+            return ""
+
+        separator = ["---"] * column_count
+        markdown_lines = [
+            f"| {' | '.join(header)} |",
+            f"| {' | '.join(separator)} |",
+        ]
+        for row in rows[1:]:
+            normalized = row[:column_count] + [""] * max(0, column_count - len(row))
+            markdown_lines.append(f"| {' | '.join(normalized)} |")
+        return "\n".join(markdown_lines)
+
 
 class HtmlParser:
     def parse(self, loaded_source: LoadedSource) -> Document:
@@ -208,6 +279,7 @@ class HtmlParser:
 
         title = parser.title_text or parser.first_h1 or self._source_stem(loaded_source.source_uri)
         body_markdown = "\n\n".join(parser.blocks)
+        annotations = extract_structural_annotations(body_markdown)
 
         return Document(
             id=document_id(loaded_source.source_uri),
@@ -218,6 +290,7 @@ class HtmlParser:
             frontmatter={},
             source_metadata={},
             body_markdown=body_markdown,
+            structural_annotations=annotations,
         )
 
     def _source_stem(self, source_uri: str) -> str:

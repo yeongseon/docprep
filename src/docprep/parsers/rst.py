@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 import re
 
+from ..chunkers._markdown import extract_structural_annotations
 from ..ids import document_id
 from ..loaders.types import LoadedSource
 from ..metadata import normalize_metadata
@@ -21,6 +22,7 @@ class RstParser:
         field_list = self._extract_field_list(raw_text)
         body = self._strip_field_list(raw_text)
         body_markdown = self._rst_to_markdown(body)
+        annotations = extract_structural_annotations(body_markdown)
         title = self._extract_title(field_list, body, loaded_source.source_uri)
         normalized_meta = normalize_metadata(
             field_list,
@@ -37,6 +39,7 @@ class RstParser:
             frontmatter=normalized_meta,
             source_metadata={},
             body_markdown=body_markdown,
+            structural_annotations=annotations,
         )
 
     def _extract_field_list(self, raw_text: str) -> dict[str, str]:

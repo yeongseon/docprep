@@ -21,6 +21,8 @@ from ._markdown import (
     _MarkdownContext,
     _rstrip_index,
     _trim_range,
+    extract_structural_annotations,
+    structure_types_for_range,
 )
 
 _PARAGRAPH_SPLIT = re.compile(r"\n\n+")
@@ -67,6 +69,7 @@ class SizeChunker:
             if not text.strip():
                 continue
 
+            structural_annotations = extract_structural_annotations(text)
             ranges = self._split_ranges(text)
             ranges = self._merge_small_ranges(text, ranges)
             dup_counts: dict[tuple[str, str], int] = {}
@@ -84,6 +87,11 @@ class SizeChunker:
                 c_hash = compute_content_hash(fragment)
                 c_anchor = compute_chunk_anchor(section.anchor, c_hash, dup_counts)
                 cid = chunk_id(document.id, c_anchor)
+                structure_types = structure_types_for_range(
+                    structural_annotations,
+                    chunk_range.start,
+                    chunk_range.end,
+                )
                 all_chunks.append(
                     Chunk(
                         id=cid,
@@ -98,6 +106,7 @@ class SizeChunker:
                         char_end=chunk_range.end,
                         heading_path=section.heading_path,
                         lineage=section.lineage,
+                        structure_types=structure_types,
                     )
                 )
                 global_order += 1

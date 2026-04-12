@@ -7,6 +7,7 @@ from pathlib import PurePosixPath
 
 import frontmatter
 
+from docprep.chunkers._markdown import extract_structural_annotations
 from docprep.exceptions import ParseError
 from docprep.ids import document_id
 from docprep.loaders.types import LoadedSource
@@ -41,6 +42,7 @@ class MarkdownParser:
 
         title = self._extract_title(normalized_fm, body, loaded_source.source_uri)
         doc_id = document_id(loaded_source.source_uri)
+        annotations = extract_structural_annotations(body)
 
         return Document(
             id=doc_id,
@@ -51,6 +53,7 @@ class MarkdownParser:
             frontmatter=normalized_fm,
             source_metadata=normalized_source_meta,
             body_markdown=body,
+            structural_annotations=annotations,
         )
 
     def _extract_title(
