@@ -41,6 +41,8 @@ Ready-to-run examples are in the [`examples/`](../examples/) directory:
 |---------|-------------|
 | [`markdown_to_sqlite.py`](../examples/markdown_to_sqlite.py) | Ingest Markdown files into SQLite |
 | [`changed_only_export.py`](../examples/changed_only_export.py) | Export only changed chunks |
+| [`incremental_sync_demo.py`](../examples/incremental_sync_demo.py) | Step-by-step incremental sync walkthrough |
+| [`benchmark_incremental_sync.py`](../examples/benchmark_incremental_sync.py) | Benchmark: re-embedding savings with incremental sync |
 | [`configs/minimal.toml`](../examples/configs/minimal.toml) | Minimal configuration |
 | [`configs/standard.toml`](../examples/configs/standard.toml) | Standard project configuration |
 | [`configs/advanced.toml`](../examples/configs/advanced.toml) | Advanced multi-format configuration |
