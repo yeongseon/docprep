@@ -82,6 +82,13 @@ def _add_ingest_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         dest="error_mode",
         help="Error handling mode (default: continue_on_error)",
     )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Number of parallel workers for parse/chunk (default: 1)",
+    )
     _add_json_group(p)
 
 
@@ -268,7 +275,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         logger=logger,
         error_mode=ErrorMode(args.error_mode),
     )
-    result = ingestor.run(source)
+    result = ingestor.run(source, workers=args.workers)
     print(format_ingest_result(result, as_json=as_json))
     if result.failed_count > 0 and result.processed_count > 0:
         return 3

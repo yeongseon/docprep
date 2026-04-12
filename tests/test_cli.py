@@ -345,6 +345,31 @@ def test_ingest_command_accepts_error_mode_flag(
     assert "Ingested 1 document(s)" in captured.out
 
 
+def test_ingest_command_accepts_workers_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_workers: list[int] = []
+
+    class FakeIngestor:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        def run(self, source: object, workers: int = 1) -> IngestResult:
+            del source
+            captured_workers.append(workers)
+            return IngestResult(documents=(), processed_count=1)
+
+    ingest_module = importlib.import_module("docprep.ingest")
+    monkeypatch.setattr(ingest_module, "Ingestor", FakeIngestor)
+
+    exit_code = cli_main.main(["ingest", "docs", "--workers", "4"])
+
+    _ = capsys.readouterr()
+    assert exit_code == 0
+    assert captured_workers == [4]
+
+
 def test_ingest_command_returns_partial_success_exit_code(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -352,8 +377,9 @@ def test_ingest_command_returns_partial_success_exit_code(
         def __init__(self, **kwargs: object) -> None:
             del kwargs
 
-        def run(self, source: object) -> IngestResult:
+        def run(self, source: object, workers: int = 1) -> IngestResult:
             del source
+            del workers
             return IngestResult(
                 documents=(),
                 processed_count=1,
@@ -385,8 +411,9 @@ def test_ingest_command_returns_failure_exit_code_when_all_failed(
         def __init__(self, **kwargs: object) -> None:
             del kwargs
 
-        def run(self, source: object) -> IngestResult:
+        def run(self, source: object, workers: int = 1) -> IngestResult:
             del source
+            del workers
             return IngestResult(
                 documents=(),
                 processed_count=0,
