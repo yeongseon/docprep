@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="doc" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="chunk1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="chunk2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="chunk3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#f472b6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+
+  <!-- Document page (left side) -->
+  <g transform="translate(60, 80)">
+    <!-- Page shape with folded corner -->
+    <path d="M0,0 L120,0 L160,40 L160,352 L0,352 Z" fill="url(#doc)" opacity="0.15" rx="8"/>
+    <path d="M120,0 L120,40 L160,40" fill="none" stroke="url(#doc)" stroke-width="2" opacity="0.3"/>
+    <path d="M0,0 L120,0 L160,40 L160,352 L0,352 Z" fill="none" stroke="url(#doc)" stroke-width="2.5" opacity="0.6" rx="8"/>
+
+    <!-- Text lines on document -->
+    <rect x="20" y="60" width="100" height="6" rx="3" fill="url(#doc)" opacity="0.5"/>
+    <rect x="20" y="80" width="120" height="6" rx="3" fill="url(#doc)" opacity="0.4"/>
+    <rect x="20" y="100" width="80" height="6" rx="3" fill="url(#doc)" opacity="0.35"/>
+    <rect x="20" y="130" width="120" height="6" rx="3" fill="url(#doc)" opacity="0.5"/>
+    <rect x="20" y="150" width="110" height="6" rx="3" fill="url(#doc)" opacity="0.4"/>
+    <rect x="20" y="170" width="90" height="6" rx="3" fill="url(#doc)" opacity="0.35"/>
+    <rect x="20" y="200" width="120" height="6" rx="3" fill="url(#doc)" opacity="0.5"/>
+    <rect x="20" y="220" width="100" height="6" rx="3" fill="url(#doc)" opacity="0.4"/>
+    <rect x="20" y="240" width="70" height="6" rx="3" fill="url(#doc)" opacity="0.35"/>
+    <rect x="20" y="270" width="110" height="6" rx="3" fill="url(#doc)" opacity="0.5"/>
+    <rect x="20" y="290" width="120" height="6" rx="3" fill="url(#doc)" opacity="0.4"/>
+    <rect x="20" y="310" width="60" height="6" rx="3" fill="url(#doc)" opacity="0.35"/>
+  </g>
+
+  <!-- Arrow / flow indicator -->
+  <g transform="translate(240, 230)">
+    <path d="M0,0 L40,0" stroke="#475569" stroke-width="3" stroke-dasharray="6,4" opacity="0.6"/>
+    <path d="M36,-6 L46,0 L36,6" fill="#475569" opacity="0.6"/>
+  </g>
+
+  <!-- Chunked output (right side - 3 stacked cards) -->
+  <g transform="translate(300, 96)">
+    <!-- Chunk 1 (green/cyan) -->
+    <rect x="0" y="0" width="152" height="88" rx="12" fill="url(#chunk1)" opacity="0.15"/>
+    <rect x="0" y="0" width="152" height="88" rx="12" fill="none" stroke="url(#chunk1)" stroke-width="2.5" opacity="0.7"/>
+    <rect x="16" y="18" width="80" height="5" rx="2.5" fill="url(#chunk1)" opacity="0.6"/>
+    <rect x="16" y="32" width="120" height="5" rx="2.5" fill="url(#chunk1)" opacity="0.45"/>
+    <rect x="16" y="46" width="100" height="5" rx="2.5" fill="url(#chunk1)" opacity="0.35"/>
+    <rect x="16" y="60" width="60" height="5" rx="2.5" fill="url(#chunk1)" opacity="0.3"/>
+    <!-- Hash indicator -->
+    <text x="128" y="80" font-family="monospace" font-size="11" fill="#34d399" opacity="0.5">#</text>
+
+    <!-- Chunk 2 (purple) -->
+    <rect x="0" y="108" width="152" height="88" rx="12" fill="url(#chunk2)" opacity="0.15"/>
+    <rect x="0" y="108" width="152" height="88" rx="12" fill="none" stroke="url(#chunk2)" stroke-width="2.5" opacity="0.7"/>
+    <rect x="16" y="126" width="100" height="5" rx="2.5" fill="url(#chunk2)" opacity="0.6"/>
+    <rect x="16" y="140" width="120" height="5" rx="2.5" fill="url(#chunk2)" opacity="0.45"/>
+    <rect x="16" y="154" width="70" height="5" rx="2.5" fill="url(#chunk2)" opacity="0.35"/>
+    <rect x="16" y="168" width="90" height="5" rx="2.5" fill="url(#chunk2)" opacity="0.3"/>
+    <text x="128" y="188" font-family="monospace" font-size="11" fill="#a78bfa" opacity="0.5">#</text>
+
+    <!-- Chunk 3 (orange/pink) -->
+    <rect x="0" y="216" width="152" height="88" rx="12" fill="url(#chunk3)" opacity="0.15"/>
+    <rect x="0" y="216" width="152" height="88" rx="12" fill="none" stroke="url(#chunk3)" stroke-width="2.5" opacity="0.7"/>
+    <rect x="16" y="234" width="110" height="5" rx="2.5" fill="url(#chunk3)" opacity="0.6"/>
+    <rect x="16" y="248" width="90" height="5" rx="2.5" fill="url(#chunk3)" opacity="0.45"/>
+    <rect x="16" y="262" width="120" height="5" rx="2.5" fill="url(#chunk3)" opacity="0.35"/>
+    <rect x="16" y="276" width="50" height="5" rx="2.5" fill="url(#chunk3)" opacity="0.3"/>
+    <text x="128" y="296" font-family="monospace" font-size="11" fill="#fb923c" opacity="0.5">#</text>
+  </g>
+
+  <!-- Scissor/cut lines between document sections -->
+  <g transform="translate(60, 80)">
+    <line x1="10" y1="122" x2="150" y2="122" stroke="#38bdf8" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+    <line x1="10" y1="192" x2="150" y2="192" stroke="#38bdf8" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+    <line x1="10" y1="262" x2="150" y2="262" stroke="#38bdf8" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  </g>
+</svg>

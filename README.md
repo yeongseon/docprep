@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="128" alt="docprep logo">
+</p>
+
 # docprep
 
 Deterministic document chunking for RAG pipelines.
