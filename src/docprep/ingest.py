@@ -17,6 +17,8 @@ from .exceptions import ConfigError, IngestError
 from .loaders.protocol import Loader
 from .models.domain import (
     Document,
+    DocumentError,
+    ErrorMode,
     IngestResult,
     IngestStageReport,
     PipelineStage,
@@ -50,6 +52,7 @@ class Ingestor:
         scope: SourceScope | None = None,
         logger: logging.Logger | None = None,
         progress_callback: ProgressCallback | None = None,
+        error_mode: ErrorMode = ErrorMode.CONTINUE_ON_ERROR,
     ) -> None:
         self._config = config
         self._loader = loader if loader is not None else self._loader_from_config(config)
@@ -61,6 +64,7 @@ class Ingestor:
         self._scope = scope
         self._logger = logger if logger is not None else logging.getLogger("docprep.ingest")
         self._progress_callback = progress_callback
+        self._error_mode = error_mode
 
     def _emit(self, event: IngestProgressEvent) -> None:
         if self._progress_callback is not None:
@@ -130,8 +134,7 @@ class Ingestor:
 
         # --- Parse + Chunk stages (per-source, best-effort) ---
         documents: list[Document] = []
-        parse_failed_uris: list[str] = []
-        chunk_failed_uris: list[str] = []
+        errors: list[DocumentError] = []
         parse_start = time.perf_counter()
         chunk_elapsed_total = 0.0
         parsed_count = 0
@@ -149,6 +152,13 @@ class Ingestor:
             try:
                 doc = self._parser.parse(ls)
             except Exception as exc:
+                error = DocumentError(
+                    source_uri=ls.source_uri,
+                    stage=PipelineStage.PARSE,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                )
+                errors.append(error)
                 self._logger.warning(
                     "Parse failed for %s: %s",
                     ls.source_uri,
@@ -168,7 +178,15 @@ class Ingestor:
                         error_type=type(exc).__name__,
                     )
                 )
-                parse_failed_uris.append(ls.source_uri)
+                if self._error_mode == ErrorMode.FAIL_FAST:
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.RUN,
+                            event="failed",
+                            error_type=type(exc).__name__,
+                        )
+                    )
+                    raise IngestError(f"parse failed for {ls.source_uri}: {exc}") from exc
                 continue
 
             parsed_count += 1
@@ -205,6 +223,13 @@ class Ingestor:
                     doc = chunker.chunk(doc)
             except Exception as exc:
                 chunk_elapsed_total += (time.perf_counter() - chunk_start) * 1000
+                error = DocumentError(
+                    source_uri=ls.source_uri,
+                    stage=PipelineStage.CHUNK,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                )
+                errors.append(error)
                 self._logger.warning(
                     "Chunk failed for %s: %s",
                     ls.source_uri,
@@ -224,7 +249,15 @@ class Ingestor:
                         error_type=type(exc).__name__,
                     )
                 )
-                chunk_failed_uris.append(ls.source_uri)
+                if self._error_mode == ErrorMode.FAIL_FAST:
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.RUN,
+                            event="failed",
+                            error_type=type(exc).__name__,
+                        )
+                    )
+                    raise IngestError(f"chunk failed for {ls.source_uri}: {exc}") from exc
                 continue
             chunk_elapsed_total += (time.perf_counter() - chunk_start) * 1000
 
@@ -237,6 +270,13 @@ class Ingestor:
                 )
             )
             documents.append(doc)
+
+        parse_failed_uris = [
+            error.source_uri for error in errors if error.stage == PipelineStage.PARSE
+        ]
+        chunk_failed_uris = [
+            error.source_uri for error in errors if error.stage == PipelineStage.CHUNK
+        ]
 
         parse_elapsed = (time.perf_counter() - parse_start) * 1000 - chunk_elapsed_total
         parse_report = IngestStageReport(
@@ -253,8 +293,6 @@ class Ingestor:
             output_count=len(documents),
             failed_count=len(chunk_failed_uris),
         )
-
-        all_failed_uris = parse_failed_uris + chunk_failed_uris
 
         # --- Sink stage ---
         sink_result = SinkUpsertResult()
@@ -277,53 +315,82 @@ class Ingestor:
                     stage=PipelineStage.PERSIST, event="started", sink_name=sink_name
                 )
             )
-            try:
-                sink_result = self._sink.upsert(documents, run_id=run_manifest.run_id)
+            sink_result_skipped: list[str] = []
+            sink_result_updated: list[str] = []
+            persisted_documents: list[Document] = []
+            for doc in documents:
+                try:
+                    doc_result = self._sink.upsert((doc,), run_id=run_manifest.run_id)
+                    if doc_result.skipped_source_uris:
+                        sink_result_skipped.extend(doc_result.skipped_source_uris)
+                        self._emit(
+                            IngestProgressEvent(
+                                stage=PipelineStage.PERSIST,
+                                event="skipped",
+                                source_uri=doc.source_uri,
+                            )
+                        )
+                    if doc_result.updated_source_uris:
+                        sink_result_updated.extend(doc_result.updated_source_uris)
+                        self._emit(
+                            IngestProgressEvent(
+                                stage=PipelineStage.PERSIST,
+                                event="updated",
+                                source_uri=doc.source_uri,
+                            )
+                        )
+                    persisted_documents.append(doc)
+                except Exception as exc:
+                    error = DocumentError(
+                        source_uri=doc.source_uri,
+                        stage=PipelineStage.PERSIST,
+                        error_type=type(exc).__name__,
+                        message=str(exc),
+                    )
+                    errors.append(error)
+                    self._logger.error(
+                        "Persist failed for %s: %s: %s",
+                        doc.source_uri,
+                        type(exc).__name__,
+                        exc,
+                        extra={
+                            "stage": PipelineStage.PERSIST,
+                            "event": "failed",
+                            "sink_name": sink_name,
+                            "source_uri": doc.source_uri,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.PERSIST,
+                            event="failed",
+                            sink_name=sink_name,
+                            source_uri=doc.source_uri,
+                            error_type=type(exc).__name__,
+                        )
+                    )
+                    if self._error_mode == ErrorMode.FAIL_FAST:
+                        self._emit(
+                            IngestProgressEvent(
+                                stage=PipelineStage.RUN,
+                                event="failed",
+                                error_type=type(exc).__name__,
+                            )
+                        )
+                        raise IngestError(f"Persist failed for {doc.source_uri}: {exc}") from exc
+
+            sink_result = SinkUpsertResult(
+                skipped_source_uris=tuple(sink_result_skipped),
+                updated_source_uris=tuple(sink_result_updated),
+            )
+
+            if persisted_documents:
                 record_run = getattr(self._sink, "record_run", None)
                 if callable(record_run):
                     _ = record_run(run_manifest)
                 persisted = True
-            except Exception as exc:
-                self._logger.error(
-                    "Sink failed: %s",
-                    type(exc).__name__,
-                    extra={
-                        "stage": PipelineStage.PERSIST,
-                        "event": "failed",
-                        "sink_name": sink_name,
-                        "error_type": type(exc).__name__,
-                    },
-                )
-                self._emit(
-                    IngestProgressEvent(
-                        stage=PipelineStage.PERSIST,
-                        event="failed",
-                        sink_name=sink_name,
-                        error_type=type(exc).__name__,
-                    )
-                )
-                self._emit(
-                    IngestProgressEvent(
-                        stage=PipelineStage.RUN,
-                        event="failed",
-                        error_type=type(exc).__name__,
-                    )
-                )
-                raise IngestError(f"Sink failed: {exc}") from exc
             sink_elapsed = (time.perf_counter() - sink_start) * 1000
-
-            for uri in sink_result.skipped_source_uris:
-                self._emit(
-                    IngestProgressEvent(
-                        stage=PipelineStage.PERSIST, event="skipped", source_uri=uri
-                    )
-                )
-            for uri in sink_result.updated_source_uris:
-                self._emit(
-                    IngestProgressEvent(
-                        stage=PipelineStage.PERSIST, event="updated", source_uri=uri
-                    )
-                )
 
             self._logger.info(
                 "Sink completed: %d updated, %d skipped",
@@ -368,19 +435,19 @@ class Ingestor:
             elapsed_ms=run_elapsed,
             input_count=len(loaded_sources),
             output_count=len(documents),
-            failed_count=len(all_failed_uris),
+            failed_count=len(errors),
         )
         stage_reports_list.append(run_report)
 
         self._logger.info(
             "Run completed: %d processed, %d failed",
             len(documents),
-            len(all_failed_uris),
+            len(errors),
             extra={
                 "stage": PipelineStage.RUN,
                 "event": "completed",
                 "processed_count": len(documents),
-                "failed_count": len(all_failed_uris),
+                "failed_count": len(errors),
             },
         )
         self._emit(
@@ -391,6 +458,8 @@ class Ingestor:
                 elapsed_ms=run_elapsed,
             )
         )
+
+        all_failed_uris = [error.source_uri for error in errors]
 
         return IngestResult(
             documents=tuple(documents),
@@ -403,6 +472,7 @@ class Ingestor:
             updated_source_uris=sink_result.updated_source_uris,
             deleted_source_uris=(),
             failed_source_uris=tuple(all_failed_uris),
+            errors=tuple(errors),
             stage_reports=tuple(stage_reports_list),
             persisted=persisted,
             sink_name=sink_name,
@@ -466,6 +536,7 @@ def ingest(
     scope: SourceScope | None = None,
     logger: logging.Logger | None = None,
     progress_callback: ProgressCallback | None = None,
+    error_mode: ErrorMode = ErrorMode.CONTINUE_ON_ERROR,
 ) -> IngestResult:
     return Ingestor(
         config=config,
@@ -476,4 +547,5 @@ def ingest(
         scope=scope,
         logger=logger,
         progress_callback=progress_callback,
+        error_mode=error_mode,
     ).run(source)

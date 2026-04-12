@@ -26,6 +26,8 @@ from docprep.loaders.protocol import Loader
 from docprep.loaders.types import LoadedSource
 from docprep.models.domain import (
     Document,
+    DocumentError,
+    ErrorMode,
     IngestStageReport,
     PipelineStage,
     RunManifest,
@@ -76,12 +78,33 @@ class RecordingSink:
         *,
         run_id: uuid.UUID | None = None,
     ) -> SinkUpsertResult:
-        self.documents = tuple(documents)
+        self.documents = self.documents + tuple(documents)
         self.run_ids = self.run_ids + (run_id,)
         return self.result
 
     def record_run(self, manifest: RunManifest) -> None:
         self.manifests = self.manifests + (manifest,)
+
+
+class SelectivelyFailingSink:
+    def __init__(self, *, fail_uris: set[str]) -> None:
+        self.fail_uris = fail_uris
+        self.upserted: list[str] = []
+
+    def upsert(
+        self,
+        documents: Sequence[Document],
+        *,
+        run_id: uuid.UUID | None = None,
+    ) -> SinkUpsertResult:
+        del run_id
+        for doc in documents:
+            if doc.source_uri in self.fail_uris:
+                raise RuntimeError(f"sink fail: {doc.source_uri}")
+        self.upserted.extend(doc.source_uri for doc in documents)
+        return SinkUpsertResult(
+            updated_source_uris=tuple(doc.source_uri for doc in documents),
+        )
 
 
 def _loaded_source(*, source_uri: str, raw_text: str = "# Title\n\nBody\n") -> LoadedSource:
@@ -281,6 +304,236 @@ def test_ingestor_continues_after_chunk_failure(tmp_path: Path) -> None:
     assert result.processed_count == 1
     assert result.failed_count == 1
     assert result.failed_source_uris == ("docs/example.md",)
+
+
+def test_ingestor_fail_fast_stops_on_first_parse_error(tmp_path: Path) -> None:
+    failing_source = _loaded_source(source_uri="docs/failing.md")
+    next_source = _loaded_source(source_uri="docs/next.md")
+    parse_attempts: list[str] = []
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [failing_source, next_source]
+
+    class SometimesFailingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            parse_attempts.append(loaded_source.source_uri)
+            if loaded_source.source_uri == failing_source.source_uri:
+                raise RuntimeError(f"bad parse: {loaded_source.source_uri}")
+            return _document_from_loaded_source(loaded_source)
+
+    with pytest.raises(IngestError, match="parse failed for docs/failing.md"):
+        _ = Ingestor(
+            loader=SingleLoader(),
+            parser=SometimesFailingParser(),
+            chunkers=[],
+            error_mode=ErrorMode.FAIL_FAST,
+        ).run(tmp_path)
+
+    assert parse_attempts == ["docs/failing.md"]
+
+
+def test_ingestor_fail_fast_stops_on_first_chunk_error(tmp_path: Path) -> None:
+    failing_source = _loaded_source(source_uri="docs/failing.md")
+    next_source = _loaded_source(source_uri="docs/next.md")
+    chunk_attempts: list[str] = []
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [failing_source, next_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    class SometimesFailingChunker:
+        def chunk(self, document: Document) -> Document:
+            chunk_attempts.append(document.source_uri)
+            if document.source_uri == failing_source.source_uri:
+                raise RuntimeError(f"bad chunk: {document.source_uri}")
+            return document
+
+    with pytest.raises(IngestError, match="chunk failed for docs/failing.md"):
+        _ = Ingestor(
+            loader=SingleLoader(),
+            parser=PassthroughParser(),
+            chunkers=[SometimesFailingChunker()],
+            error_mode=ErrorMode.FAIL_FAST,
+        ).run(tmp_path)
+
+    assert chunk_attempts == ["docs/failing.md"]
+
+
+def test_ingestor_continue_on_error_collects_structured_errors(tmp_path: Path) -> None:
+    failing_source = _loaded_source(source_uri="docs/failing.md")
+    next_source = _loaded_source(source_uri="docs/next.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [failing_source, next_source]
+
+    class SometimesFailingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            if loaded_source.source_uri == failing_source.source_uri:
+                raise RuntimeError(f"bad parse: {loaded_source.source_uri}")
+            return _document_from_loaded_source(loaded_source)
+
+    result = Ingestor(
+        loader=SingleLoader(),
+        parser=SometimesFailingParser(),
+        chunkers=[],
+        error_mode=ErrorMode.CONTINUE_ON_ERROR,
+    ).run(tmp_path)
+
+    assert len(result.errors) == 1
+    assert result.errors[0] == DocumentError(
+        source_uri="docs/failing.md",
+        stage=PipelineStage.PARSE,
+        error_type="RuntimeError",
+        message="bad parse: docs/failing.md",
+    )
+
+
+def test_ingestor_persist_failure_per_document_does_not_affect_others(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/failing.md")
+    second_source = _loaded_source(source_uri="docs/ok.md")
+    sink = SelectivelyFailingSink(fail_uris={"docs/failing.md"})
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    result = Ingestor(
+        loader=SingleLoader(),
+        parser=PassthroughParser(),
+        chunkers=[],
+        sink=sink,
+        error_mode=ErrorMode.CONTINUE_ON_ERROR,
+    ).run(tmp_path)
+
+    assert sink.upserted == ["docs/ok.md"]
+    assert result.updated_source_uris == ("docs/ok.md",)
+    assert result.failed_count == 1
+    assert result.errors[0] == DocumentError(
+        source_uri="docs/failing.md",
+        stage=PipelineStage.PERSIST,
+        error_type="RuntimeError",
+        message="sink fail: docs/failing.md",
+    )
+
+
+def test_ingestor_fail_fast_stops_on_persist_failure(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/failing.md")
+    second_source = _loaded_source(source_uri="docs/ok.md")
+    sink = SelectivelyFailingSink(fail_uris={"docs/failing.md"})
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    with pytest.raises(IngestError, match="Persist failed for docs/failing.md"):
+        _ = Ingestor(
+            loader=SingleLoader(),
+            parser=PassthroughParser(),
+            chunkers=[],
+            sink=sink,
+            error_mode=ErrorMode.FAIL_FAST,
+        ).run(tmp_path)
+
+    assert sink.upserted == []
+
+
+def test_document_error_in_ingest_result(tmp_path: Path) -> None:
+    failing_source = _loaded_source(source_uri="docs/failing.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [failing_source]
+
+    result = Ingestor(
+        loader=SingleLoader(),
+        parser=FailingParser(),
+        chunkers=[],
+        error_mode=ErrorMode.CONTINUE_ON_ERROR,
+    ).run(tmp_path)
+
+    assert result.errors == (
+        DocumentError(
+            source_uri="docs/failing.md",
+            stage=PipelineStage.PARSE,
+            error_type="RuntimeError",
+            message="bad parse: docs/failing.md",
+        ),
+    )
+    assert result.failed_source_uris == ("docs/failing.md",)
+
+
+def test_ingestor_per_document_atomicity_with_sqlalchemy(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/ok.md")
+    second_source = _loaded_source(source_uri="docs/failing.md")
+    engine = create_engine("sqlite://")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    class FailingOnUriSQLAlchemySink:
+        def __init__(self, *, fail_uris: set[str]) -> None:
+            self._delegate = SQLAlchemySink(engine=engine)
+            self._fail_uris = fail_uris
+
+        def upsert(
+            self,
+            documents: Sequence[Document],
+            *,
+            run_id: uuid.UUID | None = None,
+        ) -> SinkUpsertResult:
+            for doc in documents:
+                if doc.source_uri in self._fail_uris:
+                    raise RuntimeError(f"sink fail: {doc.source_uri}")
+            return self._delegate.upsert(documents, run_id=run_id)
+
+        def record_run(self, manifest: RunManifest) -> None:
+            self._delegate.record_run(manifest)
+
+    result = Ingestor(
+        loader=SingleLoader(),
+        parser=PassthroughParser(),
+        chunkers=[],
+        sink=FailingOnUriSQLAlchemySink(fail_uris={"docs/failing.md"}),
+        error_mode=ErrorMode.CONTINUE_ON_ERROR,
+    ).run(tmp_path)
+
+    with Session(engine) as session:
+        ok_row = session.execute(
+            select(DocumentRow).where(DocumentRow.source_uri == "docs/ok.md")
+        ).scalar_one_or_none()
+        failing_row = session.execute(
+            select(DocumentRow).where(DocumentRow.source_uri == "docs/failing.md")
+        ).scalar_one_or_none()
+
+    assert ok_row is not None
+    assert failing_row is None
+    assert result.failed_source_uris == ("docs/failing.md",)
 
 
 def test_ingestor_with_config_builds_and_runs_pipeline(tmp_path: Path) -> None:
@@ -588,7 +841,8 @@ def test_ingestor_records_run_manifest_to_sink_when_supported() -> None:
     ).run("ignored")
 
     assert result.run_manifest is not None
-    assert sink.run_ids == (result.run_manifest.run_id,)
+    assert sink.run_ids
+    assert all(run_id == result.run_manifest.run_id for run_id in sink.run_ids)
     assert sink.manifests == (result.run_manifest,)
     assert result.run_manifest.scope == SourceScope(prefixes=("file:ignored/",), explicit=False)
 
@@ -696,13 +950,14 @@ def test_sink_failure_emits_run_failed_progress_event() -> None:
             del run_id
             raise RuntimeError("sink boom")
 
-    with pytest.raises(IngestError, match="Sink failed"):
+    with pytest.raises(IngestError, match="Persist failed for docs/example.md"):
         Ingestor(
             loader=SingleLoader(),
             parser=PassthroughParser(),
             chunkers=[],
             sink=FailingSink(),
             progress_callback=events.append,
+            error_mode=ErrorMode.FAIL_FAST,
         ).run("ignored")
 
     stage_events = [(e.stage, e.event) for e in events]
