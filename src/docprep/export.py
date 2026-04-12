@@ -27,8 +27,15 @@ def build_vector_records(
     documents: tuple[Document, ...],
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
+    include_annotations: bool = False,
 ) -> tuple[VectorRecord, ...]:
-    return tuple(iter_vector_records(documents, text_prepend=text_prepend))
+    return tuple(
+        iter_vector_records(
+            documents,
+            text_prepend=text_prepend,
+            include_annotations=include_annotations,
+        )
+    )
 
 
 def build_vector_records_v1(
@@ -36,12 +43,14 @@ def build_vector_records_v1(
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
     created_at: str | None = None,
+    include_annotations: bool = False,
 ) -> tuple[VectorRecordV1, ...]:
     return tuple(
         iter_vector_records_v1(
             documents,
             text_prepend=text_prepend,
             created_at=created_at,
+            include_annotations=include_annotations,
         )
     )
 
@@ -50,11 +59,12 @@ def iter_vector_records(
     documents: tuple[Document, ...],
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
+    include_annotations: bool = False,
 ) -> Iterator[VectorRecord]:
     for doc in documents:
         for chunk in doc.chunks:
             text = _build_text(doc.title, chunk, text_prepend)
-            metadata = _build_metadata(doc, chunk)
+            metadata = _build_metadata(doc, chunk, include_annotations=include_annotations)
             yield VectorRecord(id=chunk.id, text=text, metadata=metadata)
 
 
@@ -63,6 +73,7 @@ def iter_vector_records_v1(
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
     created_at: str | None = None,
+    include_annotations: bool = False,
 ) -> Iterator[VectorRecordV1]:
     package_module = importlib.import_module("docprep")
     package_version = cast(str, getattr(package_module, "__version__"))
@@ -81,6 +92,7 @@ def iter_vector_records_v1(
                 pipeline_version=package_version,
                 created_at=timestamp,
                 text_prepend=text_prepend,
+                include_annotations=include_annotations,
             )
 
 
@@ -117,6 +129,7 @@ def build_export_delta(
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
     created_at: str | None = None,
+    include_annotations: bool = False,
 ) -> ExportDelta:
     package_module = importlib.import_module("docprep")
     package_version = cast(str, getattr(package_module, "__version__"))
@@ -152,6 +165,7 @@ def build_export_delta(
                         pipeline_version=package_version,
                         created_at=timestamp,
                         text_prepend=text_prepend,
+                        include_annotations=include_annotations,
                     )
                 )
             elif delta.status == "modified":
@@ -167,6 +181,7 @@ def build_export_delta(
                         pipeline_version=package_version,
                         created_at=timestamp,
                         text_prepend=text_prepend,
+                        include_annotations=include_annotations,
                     )
                 )
             elif delta.status == "removed":
@@ -189,8 +204,12 @@ def _build_vector_record_v1(
     pipeline_version: str,
     created_at: str,
     text_prepend: TextPrependStrategy,
+    include_annotations: bool,
 ) -> VectorRecordV1:
     text = _build_text(doc.title, chunk, text_prepend)
+    metadata = dict(user_metadata)
+    if include_annotations and chunk.structure_types:
+        metadata["docprep.structure_types"] = list(chunk.structure_types)
     return VectorRecordV1(
         id=chunk.id,
         document_id=doc.id,
@@ -206,7 +225,7 @@ def _build_vector_record_v1(
         schema_version=SCHEMA_VERSION,
         pipeline_version=pipeline_version,
         created_at=created_at,
-        user_metadata=user_metadata,
+        user_metadata=metadata,
     )
 
 
@@ -242,7 +261,7 @@ def _merge_user_metadata(doc: Document) -> Metadata:
     return {**normalized_source_meta, **normalized_fm}
 
 
-def _build_metadata(doc: Document, chunk: Chunk) -> Metadata:
+def _build_metadata(doc: Document, chunk: Chunk, *, include_annotations: bool = False) -> Metadata:
     user_metadata = _merge_user_metadata(doc)
 
     system_metadata: Metadata = {
@@ -257,5 +276,7 @@ def _build_metadata(doc: Document, chunk: Chunk) -> Metadata:
         "docprep.section_chunk_index": chunk.section_chunk_index,
         "docprep.schema_version": SCHEMA_VERSION,
     }
+    if include_annotations and chunk.structure_types:
+        system_metadata["docprep.structure_types"] = list(chunk.structure_types)
 
     return {**user_metadata, **system_metadata}

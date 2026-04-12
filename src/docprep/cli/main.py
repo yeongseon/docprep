@@ -435,6 +435,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         if isinstance(text_prepend_value, str)
         else text_prepend_value
     )
+    include_annotations = config.export.include_annotations if config.export is not None else False
 
     records_written = 0
     deleted_written = 0
@@ -498,6 +499,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
                 tuple(diffs),
                 current_docs,
                 text_prepend=text_prepend,
+                include_annotations=include_annotations,
             )
             records_written = write_jsonl(iter(delta.added + delta.modified), output)
             for deleted_id in delta.deleted_ids:
@@ -508,7 +510,11 @@ def _cmd_export(args: argparse.Namespace) -> int:
                 deleted_written += 1
         else:
             records_written = write_jsonl(
-                iter_vector_records_v1(result.documents, text_prepend=text_prepend),
+                iter_vector_records_v1(
+                    result.documents,
+                    text_prepend=text_prepend,
+                    include_annotations=include_annotations,
+                ),
                 output,
             )
     finally:

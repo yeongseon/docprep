@@ -20,6 +20,8 @@ from docprep.models.domain import (
     Section,
     SinkUpsertResult,
     SourceScope,
+    StructuralAnnotation,
+    StructureKind,
     TextPrependStrategy,
     VectorRecord,
     VectorRecordV1,
@@ -39,6 +41,7 @@ DomainDataclass: TypeAlias = (
     | type[RunManifest]
     | type[IngestStageReport]
     | type[IngestResult]
+    | type[StructuralAnnotation]
 )
 
 
@@ -66,6 +69,7 @@ def _make_document() -> Document:
         RunManifest,
         IngestStageReport,
         IngestResult,
+        StructuralAnnotation,
     ],
 )
 def test_all_domain_dataclasses_use_kw_only(cls: DomainDataclass) -> None:
@@ -149,6 +153,11 @@ def test_all_domain_dataclasses_use_kw_only(cls: DomainDataclass) -> None:
         ),
         (IngestStageReport(stage=PipelineStage.RUN, elapsed_ms=1.0), "elapsed_ms", 2.0),
         (IngestResult(documents=()), "persisted", True),
+        (
+            StructuralAnnotation(kind=StructureKind.TABLE, char_start=1, char_end=2),
+            "char_end",
+            3,
+        ),
     ],
 )
 def test_all_domain_dataclasses_are_frozen(instance: object, attribute: str, value: object) -> None:
@@ -171,6 +180,7 @@ def test_all_domain_dataclasses_are_frozen(instance: object, attribute: str, val
         RunManifest,
         IngestStageReport,
         IngestResult,
+        StructuralAnnotation,
     ],
 )
 def test_all_domain_dataclasses_use_slots(cls: DomainDataclass) -> None:
@@ -184,6 +194,7 @@ def test_document_default_values_work() -> None:
     assert document.frontmatter == {}
     assert document.source_metadata == {}
     assert document.body_markdown == ""
+    assert document.structural_annotations == ()
     assert document.sections == ()
     assert document.chunks == ()
 
@@ -241,6 +252,7 @@ def test_can_create_all_domain_objects_with_required_fields() -> None:
 
     assert section.document_id == document_id
     assert chunk.section_id == section.id
+    assert chunk.structure_types == ()
     assert document_error.source_uri == "docs/example.md"
     assert document.title == "Example"
     assert revision.document_id == document_id
@@ -326,6 +338,7 @@ def test_section_and_chunk_schema_snapshot() -> None:
         "token_count",
         "heading_path",
         "lineage",
+        "structure_types",
     ]
 
 

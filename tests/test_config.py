@@ -63,7 +63,10 @@ def test_config_dataclass_defaults_are_expected() -> None:
         database_url="sqlite:///docs.db",
         create_tables=True,
     )
-    assert ExportConfig() == ExportConfig(text_prepend="title_and_heading_path")
+    assert ExportConfig() == ExportConfig(
+        text_prepend="title_and_heading_path",
+        include_annotations=False,
+    )
 
 
 @pytest.mark.parametrize(
@@ -418,7 +421,37 @@ text_prepend = "title_only"
 
     config = load_config(config_path)
 
-    assert config.export == ExportConfig(text_prepend="title_only")
+    assert config.export == ExportConfig(text_prepend="title_only", include_annotations=False)
+
+
+def test_export_section_parsed_with_include_annotations(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+[export]
+text_prepend = "title_only"
+include_annotations = true
+""".strip()
+        + "\n",
+    )
+
+    config = load_config(config_path)
+
+    assert config.export == ExportConfig(text_prepend="title_only", include_annotations=True)
+
+
+def test_export_section_rejects_non_bool_include_annotations(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+[export]
+include_annotations = "yes"
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ConfigError, match="export.include_annotations: expected boolean, got str"):
+        _ = load_config(config_path)
 
 
 def test_load_config_rejects_bool_for_max_chars(tmp_path: Path) -> None:

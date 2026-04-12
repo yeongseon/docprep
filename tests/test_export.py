@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import uuid
 
 from docprep import __version__
@@ -185,3 +186,33 @@ def test_legacy_build_vector_records_still_works() -> None:
 
     assert record.text == "Example\n\nIntro\n\nChunk body"
     assert record.metadata["docprep.schema_version"] == SCHEMA_VERSION
+
+
+def test_export_annotations_omitted_by_default() -> None:
+    document = _document()
+    chunk = replace(document.chunks[0], structure_types=("code_fence",))
+    document = replace(document, chunks=(chunk,))
+
+    record = build_vector_records((document,))[0]
+
+    assert "docprep.structure_types" not in record.metadata
+
+
+def test_export_annotations_included_when_enabled() -> None:
+    document = _document()
+    chunk = replace(document.chunks[0], structure_types=("list", "table"))
+    document = replace(document, chunks=(chunk,))
+
+    record = build_vector_records((document,), include_annotations=True)[0]
+
+    assert record.metadata["docprep.structure_types"] == ["list", "table"]
+
+
+def test_export_v1_annotations_included_when_enabled() -> None:
+    document = _document()
+    chunk = replace(document.chunks[0], structure_types=("code_fence",))
+    document = replace(document, chunks=(chunk,))
+
+    record = build_vector_records_v1((document,), include_annotations=True)[0]
+
+    assert record.user_metadata["docprep.structure_types"] == ["code_fence"]

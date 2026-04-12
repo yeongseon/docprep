@@ -34,7 +34,7 @@ _HEADING_CHUNKER_KEYS = frozenset({"type"})
 _SIZE_CHUNKER_KEYS = frozenset({"type", "max_chars", "overlap_chars", "min_chars"})
 _TOKEN_CHUNKER_KEYS = frozenset({"type", "max_tokens", "overlap_tokens", "tokenizer"})
 _SINK_KEYS = frozenset({"type", "database_url", "create_tables"})
-_EXPORT_KEYS = frozenset({"text_prepend"})
+_EXPORT_KEYS = frozenset({"text_prepend", "include_annotations"})
 
 _LOADER_TYPES = frozenset({"markdown", "filesystem"})
 _PARSER_TYPES = frozenset({"markdown", "plaintext", "html", "rst", "auto"})
@@ -120,6 +120,7 @@ class SQLAlchemySinkConfig:
 @dataclass(frozen=True, kw_only=True, slots=True)
 class ExportConfig:
     text_prepend: str = "title_and_heading_path"
+    include_annotations: bool = False
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -477,7 +478,13 @@ def _parse_export(raw: Any, config_path: Path) -> ExportConfig | None:
         raise ConfigError(
             f"{config_path}: export.text_prepend: expected one of {values}, got {text_prepend!r}"
         )
-    return ExportConfig(text_prepend=text_prepend)
+    include_annotations = raw.get("include_annotations", False)
+    if not isinstance(include_annotations, bool):
+        raise ConfigError(
+            f"{config_path}: export.include_annotations: "
+            f"expected boolean, got {type(include_annotations).__name__}"
+        )
+    return ExportConfig(text_prepend=text_prepend, include_annotations=include_annotations)
 
 
 def _check_unknown_keys(

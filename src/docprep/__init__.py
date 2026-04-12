@@ -48,6 +48,8 @@ from .models.domain import (
     SectionDelta,
     SinkUpsertResult,
     SourceScope,
+    StructuralAnnotation,
+    StructureKind,
     SyncResult,
     TextPrependStrategy,
     VectorRecord,
@@ -63,13 +65,18 @@ def build_vector_records(
     documents: tuple[Document, ...],
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
+    include_annotations: bool = False,
 ) -> tuple[VectorRecord, ...]:
     export_module = importlib.import_module("docprep.export")
     build_records = cast(
         Callable[..., tuple[VectorRecord, ...]],
         getattr(export_module, "build_vector_records"),
     )
-    return build_records(documents, text_prepend=text_prepend)
+    return build_records(
+        documents,
+        text_prepend=text_prepend,
+        include_annotations=include_annotations,
+    )
 
 
 def build_vector_records_v1(
@@ -77,26 +84,37 @@ def build_vector_records_v1(
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
     created_at: str | None = None,
+    include_annotations: bool = False,
 ) -> tuple[VectorRecordV1, ...]:
     export_module = importlib.import_module("docprep.export")
     build_records_v1 = cast(
         Callable[..., tuple[VectorRecordV1, ...]],
         getattr(export_module, "build_vector_records_v1"),
     )
-    return build_records_v1(documents, text_prepend=text_prepend, created_at=created_at)
+    return build_records_v1(
+        documents,
+        text_prepend=text_prepend,
+        created_at=created_at,
+        include_annotations=include_annotations,
+    )
 
 
 def iter_vector_records(
     documents: tuple[Document, ...],
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
+    include_annotations: bool = False,
 ) -> Iterator[VectorRecord]:
     export_module = importlib.import_module("docprep.export")
     iter_records = cast(
         Callable[..., Iterator[VectorRecord]],
         getattr(export_module, "iter_vector_records"),
     )
-    return iter_records(documents, text_prepend=text_prepend)
+    return iter_records(
+        documents,
+        text_prepend=text_prepend,
+        include_annotations=include_annotations,
+    )
 
 
 def iter_vector_records_v1(
@@ -104,13 +122,19 @@ def iter_vector_records_v1(
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
     created_at: str | None = None,
+    include_annotations: bool = False,
 ) -> Iterator[VectorRecordV1]:
     export_module = importlib.import_module("docprep.export")
     iter_records_v1 = cast(
         Callable[..., Iterator[VectorRecordV1]],
         getattr(export_module, "iter_vector_records_v1"),
     )
-    return iter_records_v1(documents, text_prepend=text_prepend, created_at=created_at)
+    return iter_records_v1(
+        documents,
+        text_prepend=text_prepend,
+        created_at=created_at,
+        include_annotations=include_annotations,
+    )
 
 
 def build_export_delta(
@@ -119,6 +143,7 @@ def build_export_delta(
     *,
     text_prepend: TextPrependStrategy = TextPrependStrategy.TITLE_AND_HEADING_PATH,
     created_at: str | None = None,
+    include_annotations: bool = False,
 ) -> ExportDelta:
     export_module = importlib.import_module("docprep.export")
     build_delta = cast(
@@ -130,6 +155,7 @@ def build_export_delta(
         documents,
         text_prepend=text_prepend,
         created_at=created_at,
+        include_annotations=include_annotations,
     )
 
 
@@ -188,6 +214,8 @@ __all__ = [
     "SinkError",
     "SinkUpsertResult",
     "SourceScope",
+    "StructuralAnnotation",
+    "StructureKind",
     "SyncResult",
     "TextPrependStrategy",
     "TokenChunker",
