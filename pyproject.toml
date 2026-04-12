@@ -33,6 +33,7 @@ dependencies = [
 Homepage = "https://github.com/yeongseon/docprep"
 Repository = "https://github.com/yeongseon/docprep"
 Issues = "https://github.com/yeongseon/docprep/issues"
+Documentation = "https://github.com/yeongseon/docprep/tree/main/docs"
 
 [project.scripts]
 docprep = "docprep.cli.main:main"
