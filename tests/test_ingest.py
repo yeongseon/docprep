@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import importlib
 import logging
 from pathlib import Path
+import time
 import uuid
 
 import pytest
@@ -235,6 +237,155 @@ def test_ingest_convenience_function_works(tmp_path: Path) -> None:
     assert len(result.documents) == 1
     assert result.documents[0].source_uri == "file:guide.md"
     assert result.processed_count == 1
+
+
+def test_ingest_convenience_function_accepts_workers(tmp_path: Path) -> None:
+    path = tmp_path / "guide.md"
+    _ = path.write_text("# Title\n\nBody\n", encoding="utf-8")
+
+    result = ingest(path, workers=2)
+
+    assert len(result.documents) == 1
+    assert result.processed_count == 1
+
+
+def test_ingestor_workers_parallel_produces_same_result(tmp_path: Path) -> None:
+    for idx in range(5):
+        _ = (tmp_path / f"doc{idx}.md").write_text(
+            f"# Doc {idx}\n\nBody {idx}\n",
+            encoding="utf-8",
+        )
+
+    result_seq = Ingestor().run(tmp_path, workers=1)
+    result_par = Ingestor().run(tmp_path, workers=2)
+
+    assert len(result_seq.documents) == len(result_par.documents)
+    assert [doc.source_uri for doc in result_seq.documents] == [
+        doc.source_uri for doc in result_par.documents
+    ]
+    assert [doc.id for doc in result_seq.documents] == [doc.id for doc in result_par.documents]
+    assert result_seq.processed_count == result_par.processed_count
+
+
+def test_ingestor_workers_with_errors_continue(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/ok-a.md")
+    failing_source = _loaded_source(source_uri="docs/fail.md")
+    second_source = _loaded_source(source_uri="docs/ok-b.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, failing_source, second_source]
+
+    class SelectivelyFailingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            if loaded_source.source_uri == failing_source.source_uri:
+                raise RuntimeError(f"bad parse: {loaded_source.source_uri}")
+            return _document_from_loaded_source(loaded_source)
+
+    result = Ingestor(
+        loader=SingleLoader(),
+        parser=SelectivelyFailingParser(),
+        chunkers=[],
+        error_mode=ErrorMode.CONTINUE_ON_ERROR,
+    ).run(tmp_path, workers=2)
+
+    assert [doc.source_uri for doc in result.documents] == [
+        first_source.source_uri,
+        second_source.source_uri,
+    ]
+    assert result.processed_count == 2
+    assert result.failed_source_uris == (failing_source.source_uri,)
+
+
+def test_ingestor_workers_with_errors_fail_fast(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/fail.md")
+    second_source = _loaded_source(source_uri="docs/ok.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source]
+
+    class SelectivelyFailingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            if loaded_source.source_uri == first_source.source_uri:
+                raise RuntimeError(f"bad parse: {loaded_source.source_uri}")
+            return _document_from_loaded_source(loaded_source)
+
+    with pytest.raises(IngestError, match="parse failed for docs/fail.md"):
+        _ = Ingestor(
+            loader=SingleLoader(),
+            parser=SelectivelyFailingParser(),
+            chunkers=[],
+            error_mode=ErrorMode.FAIL_FAST,
+        ).run(tmp_path, workers=2)
+
+
+def test_ingestor_workers_one_is_sequential(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded_source = _loaded_source(source_uri="docs/one.md")
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    class FailingExecutor:
+        def __init__(self, max_workers: int) -> None:
+            del max_workers
+            raise AssertionError("ThreadPoolExecutor should not be used")
+
+    ingest_module = importlib.import_module("docprep.ingest")
+    monkeypatch.setattr(ingest_module, "ThreadPoolExecutor", FailingExecutor)
+
+    result = Ingestor(loader=SingleLoader(), parser=PassthroughParser(), chunkers=[]).run(
+        tmp_path,
+        workers=1,
+    )
+
+    assert result.processed_count == 1
+
+
+def test_ingestor_workers_with_sink_persists_in_order(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/a.md")
+    second_source = _loaded_source(source_uri="docs/b.md")
+    third_source = _loaded_source(source_uri="docs/c.md")
+    delays = {
+        first_source.source_uri: 0.03,
+        second_source.source_uri: 0.01,
+        third_source.source_uri: 0.0,
+    }
+    sink = RecordingSink()
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source, third_source]
+
+    class DelayedParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            time.sleep(delays[loaded_source.source_uri])
+            return _document_from_loaded_source(loaded_source)
+
+    _ = Ingestor(
+        loader=SingleLoader(),
+        parser=DelayedParser(),
+        chunkers=[],
+        sink=sink,
+    ).run(tmp_path, workers=3)
+
+    assert [doc.source_uri for doc in sink.documents] == [
+        first_source.source_uri,
+        second_source.source_uri,
+        third_source.source_uri,
+    ]
 
 
 def test_ingest_error_is_raised_for_load_failure(tmp_path: Path) -> None:

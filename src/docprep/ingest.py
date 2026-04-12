@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import concurrent.futures
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -15,6 +18,7 @@ from .chunkers.size import SizeChunker
 from .config import DocPrepConfig
 from .exceptions import ConfigError, IngestError
 from .loaders.protocol import Loader
+from .loaders.types import LoadedSource
 from .models.domain import (
     Document,
     DocumentError,
@@ -36,6 +40,83 @@ DEFAULT_CHUNKERS: Sequence[Chunker] = (HeadingChunker(), SizeChunker())
 
 Provides heading-based sectioning followed by token-size splitting.
 """
+
+
+@dataclass(frozen=True)
+class _ParseChunkSuccess:
+    index: int
+    document: Document
+    parse_elapsed_ms: float
+    chunk_elapsed_ms: float
+
+
+@dataclass(frozen=True)
+class _ParseChunkFailure:
+    index: int
+    source_uri: str
+    errors: list[DocumentError]
+    parse_elapsed_ms: float
+    chunk_elapsed_ms: float
+    sections_count: int | None = None
+
+
+def _parse_and_chunk(
+    index: int,
+    loaded_source: LoadedSource,
+    parser: Parser,
+    chunkers: Sequence[Chunker],
+) -> _ParseChunkSuccess | _ParseChunkFailure:
+    parse_start = time.perf_counter()
+    try:
+        parsed = parser.parse(loaded_source)
+    except Exception as exc:
+        parse_elapsed_ms = (time.perf_counter() - parse_start) * 1000
+        return _ParseChunkFailure(
+            index=index,
+            source_uri=loaded_source.source_uri,
+            errors=[
+                DocumentError(
+                    source_uri=loaded_source.source_uri,
+                    stage=PipelineStage.PARSE,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                )
+            ],
+            parse_elapsed_ms=parse_elapsed_ms,
+            chunk_elapsed_ms=0.0,
+        )
+
+    parse_elapsed_ms = (time.perf_counter() - parse_start) * 1000
+    chunk_start = time.perf_counter()
+    try:
+        chunked = parsed
+        for chunker in chunkers:
+            chunked = chunker.chunk(chunked)
+    except Exception as exc:
+        chunk_elapsed_ms = (time.perf_counter() - chunk_start) * 1000
+        return _ParseChunkFailure(
+            index=index,
+            source_uri=loaded_source.source_uri,
+            errors=[
+                DocumentError(
+                    source_uri=loaded_source.source_uri,
+                    stage=PipelineStage.CHUNK,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                )
+            ],
+            parse_elapsed_ms=parse_elapsed_ms,
+            chunk_elapsed_ms=chunk_elapsed_ms,
+            sections_count=len(parsed.sections),
+        )
+
+    chunk_elapsed_ms = (time.perf_counter() - chunk_start) * 1000
+    return _ParseChunkSuccess(
+        index=index,
+        document=chunked,
+        parse_elapsed_ms=parse_elapsed_ms,
+        chunk_elapsed_ms=chunk_elapsed_ms,
+    )
 
 
 class Ingestor:
@@ -75,9 +156,12 @@ class Ingestor:
                     f"Progress callback failed on {event.stage}.{event.event}: {exc}"
                 ) from exc
 
-    def run(self, source: str | Path | None = None) -> IngestResult:
+    def run(self, source: str | Path | None = None, workers: int = 1) -> IngestResult:
         run_start = time.perf_counter()
         self._emit(IngestProgressEvent(stage=PipelineStage.RUN, event="started"))
+
+        if workers < 1:
+            raise IngestError("workers must be >= 1")
 
         resolved_source = self._resolve_source(source)
         run_scope = self._scope if self._scope is not None else derive_scope(resolved_source)
@@ -136,140 +220,343 @@ class Ingestor:
         documents: list[Document] = []
         errors: list[DocumentError] = []
         parse_start = time.perf_counter()
+        parse_elapsed_total = 0.0
         chunk_elapsed_total = 0.0
         parsed_count = 0
 
-        for idx, ls in enumerate(loaded_sources):
-            self._emit(
-                IngestProgressEvent(
-                    stage=PipelineStage.PARSE,
-                    event="started",
-                    source_uri=ls.source_uri,
-                    current=idx + 1,
-                    total=len(loaded_sources),
+        if workers == 1:
+            for idx, ls in enumerate(loaded_sources):
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.PARSE,
+                        event="started",
+                        source_uri=ls.source_uri,
+                        current=idx + 1,
+                        total=len(loaded_sources),
+                    )
                 )
-            )
-            try:
-                doc = self._parser.parse(ls)
-            except Exception as exc:
-                error = DocumentError(
-                    source_uri=ls.source_uri,
-                    stage=PipelineStage.PARSE,
-                    error_type=type(exc).__name__,
-                    message=str(exc),
-                )
-                errors.append(error)
-                self._logger.warning(
-                    "Parse failed for %s: %s",
+                try:
+                    doc = self._parser.parse(ls)
+                except Exception as exc:
+                    error = DocumentError(
+                        source_uri=ls.source_uri,
+                        stage=PipelineStage.PARSE,
+                        error_type=type(exc).__name__,
+                        message=str(exc),
+                    )
+                    errors.append(error)
+                    self._logger.warning(
+                        "Parse failed for %s: %s",
+                        ls.source_uri,
+                        type(exc).__name__,
+                        extra={
+                            "stage": PipelineStage.PARSE,
+                            "event": "failed",
+                            "source_uri": ls.source_uri,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.PARSE,
+                            event="failed",
+                            source_uri=ls.source_uri,
+                            error_type=type(exc).__name__,
+                        )
+                    )
+                    if self._error_mode == ErrorMode.FAIL_FAST:
+                        self._emit(
+                            IngestProgressEvent(
+                                stage=PipelineStage.RUN,
+                                event="failed",
+                                error_type=type(exc).__name__,
+                            )
+                        )
+                        raise IngestError(f"parse failed for {ls.source_uri}: {exc}") from exc
+                    continue
+
+                parsed_count += 1
+                self._logger.debug(
+                    "Parsed %s: %d section(s)",
                     ls.source_uri,
-                    type(exc).__name__,
+                    len(doc.sections),
                     extra={
                         "stage": PipelineStage.PARSE,
-                        "event": "failed",
+                        "event": "completed",
                         "source_uri": ls.source_uri,
-                        "error_type": type(exc).__name__,
+                        "sections_count": len(doc.sections),
                     },
                 )
                 self._emit(
                     IngestProgressEvent(
                         stage=PipelineStage.PARSE,
-                        event="failed",
+                        event="completed",
                         source_uri=ls.source_uri,
-                        error_type=type(exc).__name__,
+                        sections_count=len(doc.sections),
                     )
                 )
-                if self._error_mode == ErrorMode.FAIL_FAST:
+
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.CHUNK,
+                        event="started",
+                        source_uri=ls.source_uri,
+                    )
+                )
+                chunk_start = time.perf_counter()
+                try:
+                    for chunker in self._chunkers:
+                        doc = chunker.chunk(doc)
+                except Exception as exc:
+                    chunk_elapsed_total += (time.perf_counter() - chunk_start) * 1000
+                    error = DocumentError(
+                        source_uri=ls.source_uri,
+                        stage=PipelineStage.CHUNK,
+                        error_type=type(exc).__name__,
+                        message=str(exc),
+                    )
+                    errors.append(error)
+                    self._logger.warning(
+                        "Chunk failed for %s: %s",
+                        ls.source_uri,
+                        type(exc).__name__,
+                        extra={
+                            "stage": PipelineStage.CHUNK,
+                            "event": "failed",
+                            "source_uri": ls.source_uri,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
                     self._emit(
                         IngestProgressEvent(
-                            stage=PipelineStage.RUN,
+                            stage=PipelineStage.CHUNK,
                             event="failed",
+                            source_uri=ls.source_uri,
                             error_type=type(exc).__name__,
                         )
                     )
-                    raise IngestError(f"parse failed for {ls.source_uri}: {exc}") from exc
-                continue
-
-            parsed_count += 1
-            self._logger.debug(
-                "Parsed %s: %d section(s)",
-                ls.source_uri,
-                len(doc.sections),
-                extra={
-                    "stage": PipelineStage.PARSE,
-                    "event": "completed",
-                    "source_uri": ls.source_uri,
-                    "sections_count": len(doc.sections),
-                },
-            )
-            self._emit(
-                IngestProgressEvent(
-                    stage=PipelineStage.PARSE,
-                    event="completed",
-                    source_uri=ls.source_uri,
-                    sections_count=len(doc.sections),
-                )
-            )
-
-            self._emit(
-                IngestProgressEvent(
-                    stage=PipelineStage.CHUNK,
-                    event="started",
-                    source_uri=ls.source_uri,
-                )
-            )
-            chunk_start = time.perf_counter()
-            try:
-                for chunker in self._chunkers:
-                    doc = chunker.chunk(doc)
-            except Exception as exc:
+                    if self._error_mode == ErrorMode.FAIL_FAST:
+                        self._emit(
+                            IngestProgressEvent(
+                                stage=PipelineStage.RUN,
+                                event="failed",
+                                error_type=type(exc).__name__,
+                            )
+                        )
+                        raise IngestError(f"chunk failed for {ls.source_uri}: {exc}") from exc
+                    continue
                 chunk_elapsed_total += (time.perf_counter() - chunk_start) * 1000
-                error = DocumentError(
-                    source_uri=ls.source_uri,
-                    stage=PipelineStage.CHUNK,
-                    error_type=type(exc).__name__,
-                    message=str(exc),
+
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.CHUNK,
+                        event="completed",
+                        source_uri=ls.source_uri,
+                        chunks_count=len(doc.chunks),
+                    )
                 )
-                errors.append(error)
-                self._logger.warning(
-                    "Chunk failed for %s: %s",
-                    ls.source_uri,
-                    type(exc).__name__,
+                documents.append(doc)
+            parse_elapsed_total = (time.perf_counter() - parse_start) * 1000 - chunk_elapsed_total
+        else:
+            future_to_indexed_source: dict[
+                Future[_ParseChunkSuccess | _ParseChunkFailure],
+                tuple[int, LoadedSource],
+            ] = {}
+            pending_futures: set[Future[_ParseChunkSuccess | _ParseChunkFailure]] = set()
+            unordered_results: list[_ParseChunkSuccess | _ParseChunkFailure] = []
+
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                for idx, ls in enumerate(loaded_sources):
+                    future = executor.submit(
+                        _parse_and_chunk,
+                        idx,
+                        ls,
+                        self._parser,
+                        self._chunkers,
+                    )
+                    future_to_indexed_source[future] = (idx, ls)
+                    pending_futures.add(future)
+
+                for future in concurrent.futures.as_completed(future_to_indexed_source):
+                    pending_futures.discard(future)
+                    try:
+                        unordered_results.append(future.result())
+                    except Exception as exc:
+                        idx, loaded_source = future_to_indexed_source[future]
+                        unordered_results.append(
+                            _ParseChunkFailure(
+                                index=idx,
+                                source_uri=loaded_source.source_uri,
+                                errors=[
+                                    DocumentError(
+                                        source_uri=loaded_source.source_uri,
+                                        stage=PipelineStage.PARSE,
+                                        error_type=type(exc).__name__,
+                                        message=str(exc),
+                                    )
+                                ],
+                                parse_elapsed_ms=0.0,
+                                chunk_elapsed_ms=0.0,
+                            )
+                        )
+
+            ordered_results = sorted(unordered_results, key=lambda result: result.index)
+
+            for result in ordered_results:
+                if isinstance(result, _ParseChunkSuccess):
+                    source_uri = result.document.source_uri
+                else:
+                    source_uri = result.source_uri
+
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.PARSE,
+                        event="started",
+                        source_uri=source_uri,
+                        current=result.index + 1,
+                        total=len(loaded_sources),
+                    )
+                )
+
+                if isinstance(result, _ParseChunkFailure):
+                    parse_elapsed_total += result.parse_elapsed_ms
+                    chunk_elapsed_total += result.chunk_elapsed_ms
+                    error = result.errors[0]
+                    errors.extend(result.errors)
+
+                    if error.stage == PipelineStage.PARSE:
+                        self._logger.warning(
+                            "Parse failed for %s: %s",
+                            result.source_uri,
+                            error.error_type,
+                            extra={
+                                "stage": PipelineStage.PARSE,
+                                "event": "failed",
+                                "source_uri": result.source_uri,
+                                "error_type": error.error_type,
+                            },
+                        )
+                        self._emit(
+                            IngestProgressEvent(
+                                stage=PipelineStage.PARSE,
+                                event="failed",
+                                source_uri=result.source_uri,
+                                error_type=error.error_type,
+                            )
+                        )
+                        if self._error_mode == ErrorMode.FAIL_FAST:
+                            for future in pending_futures:
+                                _ = future.cancel()
+                            self._emit(
+                                IngestProgressEvent(
+                                    stage=PipelineStage.RUN,
+                                    event="failed",
+                                    error_type=error.error_type,
+                                )
+                            )
+                            raise IngestError(
+                                f"parse failed for {result.source_uri}: {error.message}"
+                            )
+                        continue
+
+                    parsed_count += 1
+                    if result.sections_count is not None:
+                        self._logger.debug(
+                            "Parsed %s: %d section(s)",
+                            result.source_uri,
+                            result.sections_count,
+                            extra={
+                                "stage": PipelineStage.PARSE,
+                                "event": "completed",
+                                "source_uri": result.source_uri,
+                                "sections_count": result.sections_count,
+                            },
+                        )
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.PARSE,
+                            event="completed",
+                            source_uri=result.source_uri,
+                            sections_count=result.sections_count,
+                        )
+                    )
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.CHUNK,
+                            event="started",
+                            source_uri=result.source_uri,
+                        )
+                    )
+                    self._logger.warning(
+                        "Chunk failed for %s: %s",
+                        result.source_uri,
+                        error.error_type,
+                        extra={
+                            "stage": PipelineStage.CHUNK,
+                            "event": "failed",
+                            "source_uri": result.source_uri,
+                            "error_type": error.error_type,
+                        },
+                    )
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.CHUNK,
+                            event="failed",
+                            source_uri=result.source_uri,
+                            error_type=error.error_type,
+                        )
+                    )
+                    if self._error_mode == ErrorMode.FAIL_FAST:
+                        for future in pending_futures:
+                            _ = future.cancel()
+                        self._emit(
+                            IngestProgressEvent(
+                                stage=PipelineStage.RUN,
+                                event="failed",
+                                error_type=error.error_type,
+                            )
+                        )
+                        raise IngestError(f"chunk failed for {result.source_uri}: {error.message}")
+                    continue
+
+                parsed_count += 1
+                parse_elapsed_total += result.parse_elapsed_ms
+                chunk_elapsed_total += result.chunk_elapsed_ms
+                self._logger.debug(
+                    "Parsed %s: %d section(s)",
+                    result.document.source_uri,
+                    len(result.document.sections),
                     extra={
-                        "stage": PipelineStage.CHUNK,
-                        "event": "failed",
-                        "source_uri": ls.source_uri,
-                        "error_type": type(exc).__name__,
+                        "stage": PipelineStage.PARSE,
+                        "event": "completed",
+                        "source_uri": result.document.source_uri,
+                        "sections_count": len(result.document.sections),
                     },
                 )
                 self._emit(
                     IngestProgressEvent(
+                        stage=PipelineStage.PARSE,
+                        event="completed",
+                        source_uri=result.document.source_uri,
+                        sections_count=len(result.document.sections),
+                    )
+                )
+                self._emit(
+                    IngestProgressEvent(
                         stage=PipelineStage.CHUNK,
-                        event="failed",
-                        source_uri=ls.source_uri,
-                        error_type=type(exc).__name__,
+                        event="started",
+                        source_uri=result.document.source_uri,
                     )
                 )
-                if self._error_mode == ErrorMode.FAIL_FAST:
-                    self._emit(
-                        IngestProgressEvent(
-                            stage=PipelineStage.RUN,
-                            event="failed",
-                            error_type=type(exc).__name__,
-                        )
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.CHUNK,
+                        event="completed",
+                        source_uri=result.document.source_uri,
+                        chunks_count=len(result.document.chunks),
                     )
-                    raise IngestError(f"chunk failed for {ls.source_uri}: {exc}") from exc
-                continue
-            chunk_elapsed_total += (time.perf_counter() - chunk_start) * 1000
-
-            self._emit(
-                IngestProgressEvent(
-                    stage=PipelineStage.CHUNK,
-                    event="completed",
-                    source_uri=ls.source_uri,
-                    chunks_count=len(doc.chunks),
                 )
-            )
-            documents.append(doc)
+                documents.append(result.document)
 
         parse_failed_uris = [
             error.source_uri for error in errors if error.stage == PipelineStage.PARSE
@@ -278,7 +565,7 @@ class Ingestor:
             error.source_uri for error in errors if error.stage == PipelineStage.CHUNK
         ]
 
-        parse_elapsed = (time.perf_counter() - parse_start) * 1000 - chunk_elapsed_total
+        parse_elapsed = parse_elapsed_total
         parse_report = IngestStageReport(
             stage=PipelineStage.PARSE,
             elapsed_ms=parse_elapsed,
@@ -537,6 +824,7 @@ def ingest(
     logger: logging.Logger | None = None,
     progress_callback: ProgressCallback | None = None,
     error_mode: ErrorMode = ErrorMode.CONTINUE_ON_ERROR,
+    workers: int = 1,
 ) -> IngestResult:
     return Ingestor(
         config=config,
@@ -548,4 +836,4 @@ def ingest(
         logger=logger,
         progress_callback=progress_callback,
         error_mode=error_mode,
-    ).run(source)
+    ).run(source, workers=workers)
