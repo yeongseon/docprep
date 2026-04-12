@@ -267,6 +267,219 @@ def test_ingestor_workers_parallel_produces_same_result(tmp_path: Path) -> None:
     assert result_seq.processed_count == result_par.processed_count
 
 
+def test_ingestor_resume_skips_unchanged(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/a.md")
+    second_source = _loaded_source(source_uri="docs/b.md")
+    parsed: list[str] = []
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    class MultiLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source]
+
+    class TrackingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            parsed.append(loaded_source.source_uri)
+            return _document_from_loaded_source(loaded_source)
+
+    ingestor = Ingestor(loader=MultiLoader(), parser=TrackingParser(), chunkers=[])
+    first = ingestor.run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    assert first.processed_count == 2
+    assert first.skipped_count == 0
+    assert parsed == [first_source.source_uri, second_source.source_uri]
+
+    parsed.clear()
+    second = ingestor.run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    assert second.processed_count == 0
+    assert second.skipped_count == 2
+    assert second.skipped_source_uris == (first_source.source_uri, second_source.source_uri)
+    assert parsed == []
+
+
+def test_ingestor_resume_reprocesses_changed(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "checkpoint.json"
+    parsed: list[str] = []
+    source = _loaded_source(source_uri="docs/a.md")
+
+    class MutableLoader:
+        def __init__(self) -> None:
+            self.sources: list[LoadedSource] = [source]
+
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return list(self.sources)
+
+    class TrackingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            parsed.append(loaded_source.checksum)
+            return _document_from_loaded_source(loaded_source)
+
+    loader = MutableLoader()
+    ingestor = Ingestor(loader=loader, parser=TrackingParser(), chunkers=[])
+    _ = ingestor.run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    loader.sources = [
+        LoadedSource(
+            source_path=source.source_path,
+            source_uri=source.source_uri,
+            raw_text=source.raw_text + "changed",
+            checksum="checksum-updated",
+            media_type=source.media_type,
+        )
+    ]
+
+    second = ingestor.run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    assert second.processed_count == 1
+    assert second.skipped_count == 0
+    assert parsed == [source.checksum, "checksum-updated"]
+
+
+def test_ingestor_resume_config_invalidation(tmp_path: Path) -> None:
+    loaded_source = _loaded_source(source_uri="docs/a.md")
+    checkpoint_path = tmp_path / "checkpoint.json"
+    parsed: list[str] = []
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class TrackingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            parsed.append(loaded_source.source_uri)
+            return _document_from_loaded_source(loaded_source)
+
+    config_a = DocPrepConfig(
+        chunkers=(SizeChunkerConfig(max_chars=128),),
+        config_path=tmp_path / "docprep-a.toml",
+    )
+    _ = Ingestor(
+        config=config_a,
+        loader=SingleLoader(),
+        parser=TrackingParser(),
+        chunkers=[],
+    ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    config_b = DocPrepConfig(
+        chunkers=(SizeChunkerConfig(max_chars=256),),
+        config_path=tmp_path / "docprep-b.toml",
+    )
+    second = Ingestor(
+        config=config_b,
+        loader=SingleLoader(),
+        parser=TrackingParser(),
+        chunkers=[],
+    ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    assert second.processed_count == 1
+    assert second.skipped_count == 0
+    assert parsed == [loaded_source.source_uri, loaded_source.source_uri]
+
+
+def test_ingestor_resume_with_workers(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/a.md")
+    second_source = _loaded_source(source_uri="docs/b.md")
+    third_source = _loaded_source(source_uri="docs/c.md")
+    parsed: list[str] = []
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    class MultiLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source, third_source]
+
+    class TrackingParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            parsed.append(loaded_source.source_uri)
+            return _document_from_loaded_source(loaded_source)
+
+    ingestor = Ingestor(loader=MultiLoader(), parser=TrackingParser(), chunkers=[])
+    first = ingestor.run("ignored", workers=3, resume=True, checkpoint_path=checkpoint_path)
+
+    assert first.processed_count == 3
+    parsed.clear()
+
+    second = ingestor.run("ignored", workers=3, resume=True, checkpoint_path=checkpoint_path)
+
+    assert second.processed_count == 0
+    assert second.skipped_count == 3
+    assert parsed == []
+
+
+def test_ingestor_resume_no_checkpoint_file(tmp_path: Path) -> None:
+    loaded_source = _loaded_source(source_uri="docs/a.md")
+    checkpoint_path = tmp_path / "new-checkpoint.json"
+
+    class SingleLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [loaded_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    result = Ingestor(loader=SingleLoader(), parser=PassthroughParser(), chunkers=[]).run(
+        "ignored",
+        resume=True,
+        checkpoint_path=checkpoint_path,
+    )
+
+    assert result.processed_count == 1
+    assert checkpoint_path.exists()
+
+
+def test_ingestor_resume_after_interrupted_run(tmp_path: Path) -> None:
+    first_source = _loaded_source(source_uri="docs/a.md")
+    second_source = _loaded_source(source_uri="docs/b.md")
+    checkpoint_path = tmp_path / "checkpoint.json"
+
+    class MultiLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return [first_source, second_source]
+
+    class PassthroughParser:
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            return _document_from_loaded_source(loaded_source)
+
+    class FailSecondSink:
+        def upsert(
+            self,
+            documents: Sequence[Document],
+            *,
+            run_id: uuid.UUID | None = None,
+        ) -> SinkUpsertResult:
+            del run_id
+            doc = documents[0]
+            if doc.source_uri == second_source.source_uri:
+                raise RuntimeError("sink fail")
+            return SinkUpsertResult(updated_source_uris=(doc.source_uri,))
+
+    with pytest.raises(IngestError, match="Persist failed for docs/b.md"):
+        _ = Ingestor(
+            loader=MultiLoader(),
+            parser=PassthroughParser(),
+            chunkers=[],
+            sink=FailSecondSink(),
+            error_mode=ErrorMode.FAIL_FAST,
+        ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    second_run = Ingestor(
+        loader=MultiLoader(),
+        parser=PassthroughParser(),
+        chunkers=[],
+    ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
+
+    assert second_run.skipped_source_uris == (first_source.source_uri,)
+    assert second_run.processed_count == 1
+    assert second_run.documents[0].source_uri == second_source.source_uri
+
+
 def test_ingestor_workers_with_errors_continue(tmp_path: Path) -> None:
     first_source = _loaded_source(source_uri="docs/ok-a.md")
     failing_source = _loaded_source(source_uri="docs/fail.md")

@@ -156,7 +156,13 @@ class Ingestor:
                     f"Progress callback failed on {event.stage}.{event.event}: {exc}"
                 ) from exc
 
-    def run(self, source: str | Path | None = None, workers: int = 1) -> IngestResult:
+    def run(
+        self,
+        source: str | Path | None = None,
+        workers: int = 1,
+        resume: bool = False,
+        checkpoint_path: str | Path | None = None,
+    ) -> IngestResult:
         run_start = time.perf_counter()
         self._emit(IngestProgressEvent(stage=PipelineStage.RUN, event="started"))
 
@@ -216,6 +222,21 @@ class Ingestor:
             output_count=len(loaded_sources),
         )
 
+        checkpoint: CheckpointStore | None = None
+        checkpoint_skipped_source_uris: list[str] = []
+        run_id = uuid.uuid4()
+        run_id_text = str(run_id)
+        if resume:
+            from .checkpoint import CheckpointStore, compute_config_fingerprint
+
+            checkpoint = CheckpointStore(path=checkpoint_path)
+            config_fp = compute_config_fingerprint(
+                loader_config=self._config.loader if self._config else None,
+                parser_config=self._config.parser if self._config else None,
+                chunker_configs=self._config.chunkers if self._config else None,
+            )
+            checkpoint.load(config_fp)
+
         # --- Parse + Chunk stages (per-source, best-effort) ---
         documents: list[Document] = []
         errors: list[DocumentError] = []
@@ -226,6 +247,18 @@ class Ingestor:
 
         if workers == 1:
             for idx, ls in enumerate(loaded_sources):
+                if checkpoint is not None and checkpoint.is_completed(ls.source_uri, ls.checksum):
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.PARSE,
+                            event="skipped",
+                            source_uri=ls.source_uri,
+                            current=idx + 1,
+                            total=len(loaded_sources),
+                        )
+                    )
+                    checkpoint_skipped_source_uris.append(ls.source_uri)
+                    continue
                 self._emit(
                     IngestProgressEvent(
                         stage=PipelineStage.PARSE,
@@ -356,8 +389,27 @@ class Ingestor:
                     )
                 )
                 documents.append(doc)
+                if checkpoint is not None and self._sink is None:
+                    checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
+                    checkpoint.save(run_id_text)
             parse_elapsed_total = (time.perf_counter() - parse_start) * 1000 - chunk_elapsed_total
         else:
+            sources_to_process: list[tuple[int, LoadedSource]] = []
+            for idx, ls in enumerate(loaded_sources):
+                if checkpoint is not None and checkpoint.is_completed(ls.source_uri, ls.checksum):
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.PARSE,
+                            event="skipped",
+                            source_uri=ls.source_uri,
+                            current=idx + 1,
+                            total=len(loaded_sources),
+                        )
+                    )
+                    checkpoint_skipped_source_uris.append(ls.source_uri)
+                    continue
+                sources_to_process.append((idx, ls))
+
             future_to_indexed_source: dict[
                 Future[_ParseChunkSuccess | _ParseChunkFailure],
                 tuple[int, LoadedSource],
@@ -366,7 +418,7 @@ class Ingestor:
             unordered_results: list[_ParseChunkSuccess | _ParseChunkFailure] = []
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                for idx, ls in enumerate(loaded_sources):
+                for idx, ls in sources_to_process:
                     future = executor.submit(
                         _parse_and_chunk,
                         idx,
@@ -557,6 +609,12 @@ class Ingestor:
                     )
                 )
                 documents.append(result.document)
+                if checkpoint is not None and self._sink is None:
+                    checkpoint.mark_completed(
+                        result.document.source_uri,
+                        result.document.source_checksum,
+                    )
+                    checkpoint.save(run_id_text)
 
         parse_failed_uris = [
             error.source_uri for error in errors if error.stage == PipelineStage.PARSE
@@ -588,7 +646,7 @@ class Ingestor:
         sink_report: IngestStageReport | None = None
 
         run_manifest = RunManifest(
-            run_id=uuid.uuid4(),
+            run_id=run_id,
             scope=run_scope,
             source_uris_seen=tuple(ls.source_uri for ls in loaded_sources),
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -626,6 +684,9 @@ class Ingestor:
                                 source_uri=doc.source_uri,
                             )
                         )
+                    if checkpoint is not None:
+                        checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
+                        checkpoint.save(run_id_text)
                     persisted_documents.append(doc)
                 except Exception as exc:
                     error = DocumentError(
@@ -746,16 +807,22 @@ class Ingestor:
             )
         )
 
+        if checkpoint is not None:
+            checkpoint.save(run_id_text)
+
         all_failed_uris = [error.source_uri for error in errors]
+        skipped_source_uris = (
+            tuple(checkpoint_skipped_source_uris) + sink_result.skipped_source_uris
+        )
 
         return IngestResult(
             documents=tuple(documents),
             processed_count=len(documents),
-            skipped_count=len(sink_result.skipped_source_uris),
+            skipped_count=len(skipped_source_uris),
             updated_count=len(sink_result.updated_source_uris),
             deleted_count=0,
             failed_count=len(all_failed_uris),
-            skipped_source_uris=sink_result.skipped_source_uris,
+            skipped_source_uris=skipped_source_uris,
             updated_source_uris=sink_result.updated_source_uris,
             deleted_source_uris=(),
             failed_source_uris=tuple(all_failed_uris),
@@ -825,6 +892,8 @@ def ingest(
     progress_callback: ProgressCallback | None = None,
     error_mode: ErrorMode = ErrorMode.CONTINUE_ON_ERROR,
     workers: int = 1,
+    resume: bool = False,
+    checkpoint_path: str | Path | None = None,
 ) -> IngestResult:
     return Ingestor(
         config=config,
@@ -836,4 +905,9 @@ def ingest(
         logger=logger,
         progress_callback=progress_callback,
         error_mode=error_mode,
-    ).run(source, workers=workers)
+    ).run(
+        source,
+        workers=workers,
+        resume=resume,
+        checkpoint_path=checkpoint_path,
+    )
