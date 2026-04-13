@@ -9,9 +9,26 @@ docprep searches for `docprep.toml` starting in the current directory and walkin
 **Precedence** (highest to lowest):
 
 1. CLI arguments (e.g. `--db`, `source` positional)
-2. Explicit `--config PATH`
-3. Auto-discovered `docprep.toml`
+2. Environment variable overrides (`DOCPREP_...`)
+3. Config file (`--config PATH` or auto-discovered `docprep.toml`)
 4. Built-in defaults
+
+## Environment variable overrides
+
+docprep reads environment variables with the `DOCPREP_` prefix and applies them as config overrides.
+
+- Use a single `_` for root fields (for example, `DOCPREP_SOURCE`).
+- Use `__` (double underscore) for nested fields (for example, `DOCPREP_SINK__DATABASE_URL`).
+- Boolean values accept `true`/`false`/`1`/`0` (case-insensitive).
+
+Supported variables:
+
+- `DOCPREP_SOURCE` -> `source`
+- `DOCPREP_JSON` -> `json`
+- `DOCPREP_SINK__DATABASE_URL` -> `sink.database_url`
+- `DOCPREP_SINK__CREATE_TABLES` -> `sink.create_tables`
+- `DOCPREP_EXPORT__TEXT_PREPEND` -> `export.text_prepend`
+- `DOCPREP_EXPORT__INCLUDE_ANNOTATIONS` -> `export.include_annotations`
 
 ## Root options
 
@@ -171,4 +188,4 @@ text_prepend = "title_and_heading_path"
 include_annotations = true
 ```
 
-See [`examples/configs/`](../examples/configs/) for ready-to-use configuration files.
+See [`examples/configs/`](https://github.com/yeongseon/docprep/tree/main/examples/configs) for ready-to-use configuration files.

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import os
 from pathlib import Path
 import sys
 
@@ -42,6 +43,7 @@ _CHUNKER_TYPES = frozenset({"heading", "size", "token"})
 _SINK_TYPES = frozenset({"sqlalchemy"})
 _TEXT_PREPEND_VALUES = frozenset({"none", "title_only", "heading_path", "title_and_heading_path"})
 _TOKENIZER_TYPES = frozenset({"whitespace", "character"})
+_ENV_PREFIX = "DOCPREP_"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -172,7 +174,7 @@ def load_config(path: str | Path) -> DocPrepConfig:
         raise ConfigError(f"{config_path}: invalid TOML: {exc}") from exc
     except OSError as exc:
         raise ConfigError(f"{config_path}: cannot read config file: {exc}") from exc
-    return _parse_raw(raw, config_path)
+    return _apply_env_overrides(_parse_raw(raw, config_path))
 
 
 def load_discovered_config(
@@ -184,8 +186,77 @@ def load_discovered_config(
         return load_config(explicit_path)
     found = discover_config_path(start=start)
     if found is None:
-        return None
+        config = _apply_env_overrides(DocPrepConfig())
+        if config == DocPrepConfig():
+            return None
+        return config
     return load_config(found)
+
+
+def _apply_env_overrides(config: DocPrepConfig) -> DocPrepConfig:
+    env_source: str | None = None
+    env_json: bool | str | None = None
+    sink_overrides: dict[str, Any] = {}
+    export_overrides: dict[str, Any] = {}
+
+    for key, value in os.environ.items():
+        if not key.startswith(_ENV_PREFIX):
+            continue
+        if key == "DOCPREP_SOURCE":
+            env_source = value
+        elif key == "DOCPREP_JSON":
+            env_json = _parse_env_boolean(value)
+        elif key == "DOCPREP_SINK__DATABASE_URL":
+            sink_overrides["database_url"] = value
+        elif key == "DOCPREP_SINK__CREATE_TABLES":
+            sink_overrides["create_tables"] = _parse_env_boolean(value)
+        elif key == "DOCPREP_EXPORT__TEXT_PREPEND":
+            export_overrides["text_prepend"] = value
+        elif key == "DOCPREP_EXPORT__INCLUDE_ANNOTATIONS":
+            export_overrides["include_annotations"] = _parse_env_boolean(value)
+
+    if env_source is None and env_json is None and not sink_overrides and not export_overrides:
+        return config
+
+    config_path = config.config_path or Path("<environment>")
+    updated = config
+
+    if env_source is not None:
+        updated = replace(updated, source=env_source)
+
+    if env_json is not None:
+        if not isinstance(env_json, bool):
+            raise ConfigError(
+                f"{config_path}: root.json: expected boolean, got {type(env_json).__name__}"
+            )
+        updated = replace(updated, json=env_json)
+
+    if sink_overrides:
+        sink_raw: dict[str, Any] = {"type": "sqlalchemy"}
+        if updated.sink is not None:
+            sink_raw["database_url"] = updated.sink.database_url
+            sink_raw["create_tables"] = updated.sink.create_tables
+        sink_raw.update(sink_overrides)
+        updated = replace(updated, sink=_parse_sink(sink_raw, config_path))
+
+    if export_overrides:
+        export_raw: dict[str, Any] = {}
+        if updated.export is not None:
+            export_raw["text_prepend"] = updated.export.text_prepend
+            export_raw["include_annotations"] = updated.export.include_annotations
+        export_raw.update(export_overrides)
+        updated = replace(updated, export=_parse_export(export_raw, config_path))
+
+    return updated
+
+
+def _parse_env_boolean(raw: str) -> bool | str:
+    lowered = raw.lower()
+    if lowered in {"true", "1"}:
+        return True
+    if lowered in {"false", "0"}:
+        return False
+    return raw
 
 
 def _parse_raw(raw: dict[str, Any], config_path: Path) -> DocPrepConfig:
