@@ -12,6 +12,7 @@ LOADER_GROUP = "docprep.loaders"
 PARSER_GROUP = "docprep.parsers"
 CHUNKER_GROUP = "docprep.chunkers"
 SINK_GROUP = "docprep.sinks"
+ADAPTER_GROUP = "docprep.adapters"
 
 
 def discover_entry_points(group: str) -> dict[str, object]:

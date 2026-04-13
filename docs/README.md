@@ -1,6 +1,6 @@
 # docprep Documentation
 
-Welcome to the docprep documentation. docprep transforms source documents into structured, vector-ready chunks with deterministic IDs, Markdown-aware boundaries, and incremental sync.
+Welcome to the docprep documentation. docprep is a document ingestion layer for RAG pipelines — deterministic chunk IDs, incremental sync, and changed-only export.
 
 ## Guides
 
@@ -19,6 +19,7 @@ Welcome to the docprep documentation. docprep transforms source documents into s
 | [Export](export.md) | VectorRecordV1, JSONL, changed-only export |
 | [Plugins](plugins.md) | Entry-point plugin system, custom components |
 | [Adapters](adapters.md) | External converter integration (MarkItDown, Docling, etc.) |
+| [Lifecycle](lifecycle.md) | Deletion, sync, prune, and change detection semantics |
 
 ## Design Decisions
 
@@ -51,6 +52,7 @@ Ready-to-run examples are in the [`examples/`](../examples/) directory:
 | [`adapter_markitdown.py`](../examples/adapter_markitdown.py) | Custom adapter (CSV→Markdown + MarkItDown pattern) |
 | [`vector_store_integration.py`](../examples/vector_store_integration.py) | Qdrant, ChromaDB, and JSONL export patterns |
 | [`custom_plugin.py`](../examples/custom_plugin.py) | Custom chunker plugin with entry-point registration |
+| [`plugin-template/`](../examples/plugin-template/) | Minimal plugin project template (copy and customize) |
 | [`error_handling.py`](../examples/error_handling.py) | Error modes, progress callbacks, exception hierarchy |
 | [`large_corpus.py`](../examples/large_corpus.py) | Parallel ingestion, checkpoints, streaming export |
 | [`sample_docs/`](../examples/sample_docs/) | Sample Markdown files used by examples |

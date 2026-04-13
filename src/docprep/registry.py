@@ -32,7 +32,14 @@ from .parsers.multi import MultiFormatParser
 from .parsers.plaintext import PlainTextParser
 from .parsers.protocol import Parser
 from .parsers.rst import RstParser
-from .plugins import CHUNKER_GROUP, LOADER_GROUP, PARSER_GROUP, SINK_GROUP, discover_entry_points
+from .plugins import (
+    ADAPTER_GROUP,
+    CHUNKER_GROUP,
+    LOADER_GROUP,
+    PARSER_GROUP,
+    SINK_GROUP,
+    discover_entry_points,
+)
 from .sinks.protocol import Sink
 
 
@@ -90,9 +97,11 @@ def _builtin_components(group: str) -> dict[str, object]:
         return dict(BUILTIN_CHUNKERS)
     if group == SINK_GROUP:
         return {name: _load_object_path(path) for name, path in BUILTIN_SINKS.items()}
+    if group == ADAPTER_GROUP:
+        return {}
     raise ValueError(
         f"Unknown component group '{group}'. Expected one of: "
-        + f"{LOADER_GROUP}, {PARSER_GROUP}, {CHUNKER_GROUP}, {SINK_GROUP}."
+        + f"{LOADER_GROUP}, {PARSER_GROUP}, {CHUNKER_GROUP}, {SINK_GROUP}, {ADAPTER_GROUP}."
     )
 
 
@@ -122,6 +131,11 @@ def get_all_sinks() -> dict[str, object]:
     for plugin_name, plugin in discover_entry_points(SINK_GROUP).items():
         result[plugin_name] = plugin
     return result
+
+
+def get_all_adapters() -> dict[str, object]:
+    """Return all registered adapter plugins (no built-in adapters by design)."""
+    return dict(discover_entry_points(ADAPTER_GROUP))
 
 
 def resolve_component(group: str, name: str) -> object:
