@@ -244,7 +244,7 @@ Errors are classified by pipeline stage (`LOAD`, `PARSE`, `CHUNK`, `PERSIST`) in
 
 ## Design Decisions
 
-Key architectural decisions are documented as Architecture Decision Records in [`docs/decisions/`](decisions/README.md):
+Key architectural decisions are documented as Architecture Decision Records in [`docs/decisions/`](decisions/index.md):
 
 | ADR | Decision |
 |-----|----------|
