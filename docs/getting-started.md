@@ -21,7 +21,7 @@ pip install docprep[postgres]
 
 ## How docprep works
 
-docprep transforms source documents into structured, vector-ready chunks through a deterministic pipeline:
+docprep is a document ingestion layer for RAG pipelines. It transforms source documents into structured chunks through a deterministic pipeline:
 
 ```
 Source files → Loader → Parser → Chunker(s) → Sink → Export
@@ -29,11 +29,11 @@ Source files → Loader → Parser → Chunker(s) → Sink → Export
                                 Diff Engine → Changed-only export
 ```
 
-1. **Loader** discovers and reads source files (Markdown, HTML, RST, plain text)
+1. **Loader** discovers and reads source files (Markdown by default; configure `loader.type = "filesystem"` and `parser.type = "auto"` for HTML, RST, plain text)
 2. **Parser** extracts structure: headings, frontmatter, body content
 3. **Chunker(s)** split documents into heading-based sections, then into sized chunks
-4. **Sink** (optional) persists results to a database for incremental sync
-5. **Export** produces vector-ready JSONL records
+4. **Sink** (optional) persists results to a database (SQLAlchemy) for incremental sync
+5. **Export** produces JSONL records ([VectorRecordV1](export.md)) for loading into any vector store
 
 Every chunk gets a deterministic ID based on its content and position. When documents change, docprep computes a structural diff and exports only what changed.
 

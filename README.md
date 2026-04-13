@@ -4,7 +4,7 @@
 
 # docprep
 
-Deterministic document chunking for RAG pipelines.
+Deterministic chunk IDs and incremental sync for document ingestion.
 
 [![Test and Coverage](https://github.com/yeongseon/docprep/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/docprep/actions/workflows/ci-test.yml)
 [![PyPI version](https://badge.fury.io/py/docprep.svg)](https://pypi.org/project/docprep/)
@@ -13,7 +13,7 @@ Deterministic document chunking for RAG pipelines.
 
 ## What is docprep?
 
-docprep transforms source documents into structured, vector-ready chunks with **deterministic IDs**, **Markdown-aware boundaries**, and **incremental sync**. It sits between your documents and your vector store:
+docprep is a document ingestion layer for RAG pipelines. It transforms source documents into structured chunks with **deterministic IDs**, **Markdown-aware boundaries**, and **incremental sync**. It sits between your documents and your vector store:
 
 ```
 Source files → Loader → Parser → Chunker(s) → Sink → Export
@@ -27,7 +27,7 @@ docprep produces the same chunk IDs for the same input, every time. When documen
 
 - **Not a document parser.** Use [MarkItDown](https://github.com/microsoft/markitdown), [Docling](https://github.com/DS4SD/docling), or [Unstructured](https://github.com/Unstructured-IO/unstructured) for PDFs/DOCX/PPTX, then feed Markdown into docprep via [adapters](docs/adapters.md).
 - **Not an embedding service.** docprep produces text chunks; you bring your own embedding model.
-- **Not a vector database.** docprep exports records for Qdrant, pgvector, Chroma, or any other store.
+- **Not a vector database.** docprep exports chunk records as JSONL ([VectorRecordV1](docs/export.md)); you load them into Qdrant, pgvector, Chroma, or any other store.
 - **Not a RAG framework.** Use LlamaIndex or LangChain for retrieval. docprep handles the ingestion layer.
 
 ## How docprep compares
@@ -37,9 +37,22 @@ docprep produces the same chunk IDs for the same input, every time. When documen
 | Deterministic chunk IDs | ✅ | N/A | ❌ | ❌ | ❌ |
 | Markdown-aware splitting | ✅ | N/A | Limited | Limited | ❌ |
 | Incremental sync (diff) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Multi-format parsing | Via adapters | ✅ | ✅ | ✅ | ❌ |
+| Multi-format parsing | Via [adapters](docs/adapters.md) | ✅ | ✅ | ✅ | ❌ |
 | Plugin system | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Chunk-level provenance | ✅ | N/A | Partial | Partial | ❌ |
+
+## What ships today
+
+| Category | Built-in | Via third-party adapter/plugin |
+|----------|----------|-------------------------------|
+| **Loaders** | Markdown, FileSystem | — |
+| **Parsers** | Markdown, Plaintext, HTML, RST, Auto | — |
+| **Chunkers** | Heading, Size, Token | — |
+| **Sinks** | SQLAlchemy (SQLite, PostgreSQL) | — |
+| **Adapters** | — (third-party by design) | MarkItDown, Docling, etc. |
+| **Export** | JSONL (VectorRecordV1) | — |
+
+> **Default behavior**: `ingest("docs/")` uses the Markdown loader. For multi-format ingestion, configure `loader.type = "filesystem"` and `parser.type = "auto"` in `docprep.toml`. See [Configuration](docs/configuration.md).
 
 ## Installation
 
@@ -125,10 +138,13 @@ docprep export docs/ --changed-only --db sqlite:///docs.db -o delta.jsonl
 | [Export](docs/export.md) | VectorRecordV1, JSONL, changed-only export |
 | [Plugins](docs/plugins.md) | Entry-point plugin system |
 | [Adapters](docs/adapters.md) | External converter integration |
+| [Lifecycle](docs/lifecycle.md) | Deletion, sync, prune, and change detection |
+| [Performance](docs/performance.md) | Benchmark results, cost savings, concurrency |
+| [Roadmap](ROADMAP.md) | Project status, planned features, Beta criteria |
 
 Design decisions are documented as [Architecture Decision Records](docs/decisions/README.md).
 
-## Supported Formats
+## Supported Parsers
 
 | Format | Extensions | Parser | Notes |
 |--------|-----------|--------|-------|
@@ -136,7 +152,7 @@ Design decisions are documented as [Architecture Decision Records](docs/decision
 | Plain text | `.txt` | Built-in | First non-empty line as title |
 | HTML | `.html`, `.htm` | Built-in (stdlib) | Strips script/style, converts headings |
 | reStructuredText | `.rst` | Built-in | Heading adornments, field lists |
-| Any format | `*` | Via [adapter](docs/adapters.md) | MarkItDown, Docling, Unstructured, etc. |
+| Any format | `*` | Via [adapter](docs/adapters.md) | Third-party adapters (MarkItDown, Docling, Unstructured) convert to Markdown first |
 
 ## Development
 
