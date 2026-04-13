@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "my-docprep-plugin"
+version = "0.1.0"
+description = "A custom docprep plugin"
+requires-python = ">=3.10"
+dependencies = ["docprep"]
+
+# Register your plugin with the appropriate entry-point group.
+# Uncomment additional groups if your package provides multiple component types.
+
+[project.entry-points."docprep.chunkers"]
+sentence = "my_docprep_plugin.chunker:SentenceChunker"
+
+# [project.entry-points."docprep.loaders"]
+# my-loader = "my_docprep_plugin.loader:MyLoader"
+
+# [project.entry-points."docprep.parsers"]
+# my-parser = "my_docprep_plugin.parser:MyParser"
+
+# [project.entry-points."docprep.sinks"]
+# my-sink = "my_docprep_plugin.sink:MySink"
+
+# [project.entry-points."docprep.adapters"]
+# my-adapter = "my_docprep_plugin.adapter:MyAdapter"
