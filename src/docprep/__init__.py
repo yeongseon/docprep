@@ -56,7 +56,13 @@ from .models.domain import (
     VectorRecordV1,
 )
 from .progress import IngestProgressEvent, ProgressCallback
-from .registry import get_all_chunkers, get_all_loaders, get_all_parsers, get_all_sinks
+from .registry import (
+    get_all_adapters,
+    get_all_chunkers,
+    get_all_loaders,
+    get_all_parsers,
+    get_all_sinks,
+)
 
 logging.getLogger("docprep").addHandler(logging.NullHandler())
 
@@ -192,6 +198,7 @@ __all__ = [
     "get_all_loaders",
     "get_all_parsers",
     "get_all_sinks",
+    "get_all_adapters",
     "ingest",
     "IngestError",
     "IngestProgressEvent",

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import time
+from typing import TYPE_CHECKING
 import uuid
 
 from .chunkers.heading import HeadingChunker
@@ -34,6 +35,9 @@ from .parsers.protocol import Parser
 from .progress import IngestProgressEvent, ProgressCallback
 from .scope import derive_scope
 from .sinks.protocol import Sink
+
+if TYPE_CHECKING:
+    from .checkpoint import CheckpointStore
 
 DEFAULT_CHUNKERS: Sequence[Chunker] = (HeadingChunker(), SizeChunker())
 """Canonical default chunker pipeline — used by both Ingestor and CLI.
@@ -172,11 +176,61 @@ class Ingestor:
         resolved_source = self._resolve_source(source)
         run_scope = self._scope if self._scope is not None else derive_scope(resolved_source)
 
-        # --- Load stage ---
+        loaded_sources, load_report = self._run_load_stage(resolved_source)
+        checkpoint, checkpoint_skipped_source_uris, run_id, run_id_text = self._setup_checkpoint(
+            resume=resume,
+            checkpoint_path=checkpoint_path,
+        )
+        documents, errors, parsed_count, parse_report, chunk_elapsed_total = self._run_parse_stage(
+            loaded_sources=loaded_sources,
+            workers=workers,
+            checkpoint=checkpoint,
+            checkpoint_skipped_source_uris=checkpoint_skipped_source_uris,
+            run_id_text=run_id_text,
+        )
+        chunk_report = self._run_chunk_stage(
+            parsed_count=parsed_count,
+            documents=documents,
+            errors=errors,
+            chunk_elapsed_total=chunk_elapsed_total,
+        )
+
+        run_manifest = RunManifest(
+            run_id=run_id,
+            scope=run_scope,
+            source_uris_seen=tuple(ls.source_uri for ls in loaded_sources),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        sink_result, persisted, sink_name, sink_report = self._run_persist_stage(
+            documents=documents,
+            errors=errors,
+            checkpoint=checkpoint,
+            run_id_text=run_id_text,
+            run_manifest=run_manifest,
+        )
+        return self._build_result(
+            run_start=run_start,
+            loaded_sources=loaded_sources,
+            documents=documents,
+            errors=errors,
+            load_report=load_report,
+            parse_report=parse_report,
+            chunk_report=chunk_report,
+            sink_report=sink_report,
+            checkpoint=checkpoint,
+            checkpoint_skipped_source_uris=checkpoint_skipped_source_uris,
+            sink_result=sink_result,
+            persisted=persisted,
+            sink_name=sink_name,
+            run_manifest=run_manifest,
+            run_id_text=run_id_text,
+        )
+
+    def _run_load_stage(self, source: str | Path) -> tuple[list[LoadedSource], IngestStageReport]:
         load_start = time.perf_counter()
         self._emit(IngestProgressEvent(stage=PipelineStage.LOAD, event="started"))
         try:
-            loaded_sources = list(self._loader.load(resolved_source))
+            loaded_sources = list(self._loader.load(source))
         except Exception as exc:
             self._logger.error(
                 "Load stage failed: %s",
@@ -202,6 +256,7 @@ class Ingestor:
                 )
             )
             raise IngestError(f"Loading failed: {exc}") from exc
+
         load_elapsed = (time.perf_counter() - load_start) * 1000
         self._logger.info(
             "Loaded %d source(s)",
@@ -221,7 +276,14 @@ class Ingestor:
             elapsed_ms=load_elapsed,
             output_count=len(loaded_sources),
         )
+        return loaded_sources, load_report
 
+    def _setup_checkpoint(
+        self,
+        *,
+        resume: bool,
+        checkpoint_path: str | Path | None,
+    ) -> tuple[CheckpointStore | None, list[str], uuid.UUID, str]:
         checkpoint: CheckpointStore | None = None
         checkpoint_skipped_source_uris: list[str] = []
         run_id = uuid.uuid4()
@@ -236,8 +298,17 @@ class Ingestor:
                 chunker_configs=self._config.chunkers if self._config else None,
             )
             checkpoint.load(config_fp)
+        return checkpoint, checkpoint_skipped_source_uris, run_id, run_id_text
 
-        # --- Parse + Chunk stages (per-source, best-effort) ---
+    def _run_parse_stage(
+        self,
+        *,
+        loaded_sources: list[LoadedSource],
+        workers: int,
+        checkpoint: CheckpointStore | None,
+        checkpoint_skipped_source_uris: list[str],
+        run_id_text: str,
+    ) -> tuple[list[Document], list[DocumentError], int, IngestStageReport, float]:
         documents: list[Document] = []
         errors: list[DocumentError] = []
         parse_start = time.perf_counter()
@@ -619,19 +690,27 @@ class Ingestor:
         parse_failed_uris = [
             error.source_uri for error in errors if error.stage == PipelineStage.PARSE
         ]
-        chunk_failed_uris = [
-            error.source_uri for error in errors if error.stage == PipelineStage.CHUNK
-        ]
-
-        parse_elapsed = parse_elapsed_total
         parse_report = IngestStageReport(
             stage=PipelineStage.PARSE,
-            elapsed_ms=parse_elapsed,
+            elapsed_ms=parse_elapsed_total,
             input_count=len(loaded_sources),
             output_count=parsed_count,
             failed_count=len(parse_failed_uris),
         )
-        chunk_report = IngestStageReport(
+        return documents, errors, parsed_count, parse_report, chunk_elapsed_total
+
+    def _run_chunk_stage(
+        self,
+        *,
+        parsed_count: int,
+        documents: list[Document],
+        errors: list[DocumentError],
+        chunk_elapsed_total: float,
+    ) -> IngestStageReport:
+        chunk_failed_uris = [
+            error.source_uri for error in errors if error.stage == PipelineStage.CHUNK
+        ]
+        return IngestStageReport(
             stage=PipelineStage.CHUNK,
             elapsed_ms=chunk_elapsed_total,
             input_count=parsed_count,
@@ -639,136 +718,159 @@ class Ingestor:
             failed_count=len(chunk_failed_uris),
         )
 
-        # --- Sink stage ---
+    def _run_persist_stage(
+        self,
+        *,
+        documents: list[Document],
+        errors: list[DocumentError],
+        checkpoint: CheckpointStore | None,
+        run_id_text: str,
+        run_manifest: RunManifest,
+    ) -> tuple[SinkUpsertResult, bool, str | None, IngestStageReport | None]:
         sink_result = SinkUpsertResult()
         persisted = False
         sink_name: str | None = None
         sink_report: IngestStageReport | None = None
+        if self._sink is None:
+            return sink_result, persisted, sink_name, sink_report
 
-        run_manifest = RunManifest(
-            run_id=run_id,
-            scope=run_scope,
-            source_uris_seen=tuple(ls.source_uri for ls in loaded_sources),
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
-
-        if self._sink is not None:
-            sink_start = time.perf_counter()
-            sink_name = type(self._sink).__name__
-            self._emit(
-                IngestProgressEvent(
-                    stage=PipelineStage.PERSIST, event="started", sink_name=sink_name
-                )
+        sink_start = time.perf_counter()
+        sink_name = type(self._sink).__name__
+        self._emit(
+            IngestProgressEvent(
+                stage=PipelineStage.PERSIST,
+                event="started",
+                sink_name=sink_name,
             )
-            sink_result_skipped: list[str] = []
-            sink_result_updated: list[str] = []
-            persisted_documents: list[Document] = []
-            for doc in documents:
-                try:
-                    doc_result = self._sink.upsert((doc,), run_id=run_manifest.run_id)
-                    if doc_result.skipped_source_uris:
-                        sink_result_skipped.extend(doc_result.skipped_source_uris)
-                        self._emit(
-                            IngestProgressEvent(
-                                stage=PipelineStage.PERSIST,
-                                event="skipped",
-                                source_uri=doc.source_uri,
-                            )
-                        )
-                    if doc_result.updated_source_uris:
-                        sink_result_updated.extend(doc_result.updated_source_uris)
-                        self._emit(
-                            IngestProgressEvent(
-                                stage=PipelineStage.PERSIST,
-                                event="updated",
-                                source_uri=doc.source_uri,
-                            )
-                        )
-                    if checkpoint is not None:
-                        checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
-                        checkpoint.save(run_id_text)
-                    persisted_documents.append(doc)
-                except Exception as exc:
-                    error = DocumentError(
-                        source_uri=doc.source_uri,
-                        stage=PipelineStage.PERSIST,
-                        error_type=type(exc).__name__,
-                        message=str(exc),
-                    )
-                    errors.append(error)
-                    self._logger.error(
-                        "Persist failed for %s: %s: %s",
-                        doc.source_uri,
-                        type(exc).__name__,
-                        exc,
-                        extra={
-                            "stage": PipelineStage.PERSIST,
-                            "event": "failed",
-                            "sink_name": sink_name,
-                            "source_uri": doc.source_uri,
-                            "error_type": type(exc).__name__,
-                        },
-                    )
+        )
+        sink_result_skipped: list[str] = []
+        sink_result_updated: list[str] = []
+        persisted_documents: list[Document] = []
+        for doc in documents:
+            try:
+                doc_result = self._sink.upsert((doc,), run_id=run_manifest.run_id)
+                if doc_result.skipped_source_uris:
+                    sink_result_skipped.extend(doc_result.skipped_source_uris)
                     self._emit(
                         IngestProgressEvent(
                             stage=PipelineStage.PERSIST,
-                            event="failed",
-                            sink_name=sink_name,
+                            event="skipped",
                             source_uri=doc.source_uri,
+                        )
+                    )
+                if doc_result.updated_source_uris:
+                    sink_result_updated.extend(doc_result.updated_source_uris)
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.PERSIST,
+                            event="updated",
+                            source_uri=doc.source_uri,
+                        )
+                    )
+                if checkpoint is not None:
+                    checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
+                    checkpoint.save(run_id_text)
+                persisted_documents.append(doc)
+            except Exception as exc:
+                error = DocumentError(
+                    source_uri=doc.source_uri,
+                    stage=PipelineStage.PERSIST,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                )
+                errors.append(error)
+                self._logger.error(
+                    "Persist failed for %s: %s: %s",
+                    doc.source_uri,
+                    type(exc).__name__,
+                    exc,
+                    extra={
+                        "stage": PipelineStage.PERSIST,
+                        "event": "failed",
+                        "sink_name": sink_name,
+                        "source_uri": doc.source_uri,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.PERSIST,
+                        event="failed",
+                        sink_name=sink_name,
+                        source_uri=doc.source_uri,
+                        error_type=type(exc).__name__,
+                    )
+                )
+                if self._error_mode == ErrorMode.FAIL_FAST:
+                    self._emit(
+                        IngestProgressEvent(
+                            stage=PipelineStage.RUN,
+                            event="failed",
                             error_type=type(exc).__name__,
                         )
                     )
-                    if self._error_mode == ErrorMode.FAIL_FAST:
-                        self._emit(
-                            IngestProgressEvent(
-                                stage=PipelineStage.RUN,
-                                event="failed",
-                                error_type=type(exc).__name__,
-                            )
-                        )
-                        raise IngestError(f"Persist failed for {doc.source_uri}: {exc}") from exc
+                    raise IngestError(f"Persist failed for {doc.source_uri}: {exc}") from exc
 
-            sink_result = SinkUpsertResult(
-                skipped_source_uris=tuple(sink_result_skipped),
-                updated_source_uris=tuple(sink_result_updated),
-            )
+        sink_result = SinkUpsertResult(
+            skipped_source_uris=tuple(sink_result_skipped),
+            updated_source_uris=tuple(sink_result_updated),
+        )
 
-            if persisted_documents:
-                record_run = getattr(self._sink, "record_run", None)
-                if callable(record_run):
-                    _ = record_run(run_manifest)
-                persisted = True
-            sink_elapsed = (time.perf_counter() - sink_start) * 1000
+        if persisted_documents:
+            record_run = getattr(self._sink, "record_run", None)
+            if callable(record_run):
+                _ = record_run(run_manifest)
+            persisted = True
 
-            self._logger.info(
-                "Sink completed: %d updated, %d skipped",
-                len(sink_result.updated_source_uris),
-                len(sink_result.skipped_source_uris),
-                extra={
-                    "stage": PipelineStage.PERSIST,
-                    "event": "completed",
-                    "sink_name": sink_name,
-                    "updated_count": len(sink_result.updated_source_uris),
-                    "skipped_count": len(sink_result.skipped_source_uris),
-                },
-            )
-            self._emit(
-                IngestProgressEvent(
-                    stage=PipelineStage.PERSIST,
-                    event="completed",
-                    sink_name=sink_name,
-                    elapsed_ms=sink_elapsed,
-                )
-            )
-            sink_report = IngestStageReport(
+        sink_elapsed = (time.perf_counter() - sink_start) * 1000
+        self._logger.info(
+            "Sink completed: %d updated, %d skipped",
+            len(sink_result.updated_source_uris),
+            len(sink_result.skipped_source_uris),
+            extra={
+                "stage": PipelineStage.PERSIST,
+                "event": "completed",
+                "sink_name": sink_name,
+                "updated_count": len(sink_result.updated_source_uris),
+                "skipped_count": len(sink_result.skipped_source_uris),
+            },
+        )
+        self._emit(
+            IngestProgressEvent(
                 stage=PipelineStage.PERSIST,
+                event="completed",
+                sink_name=sink_name,
                 elapsed_ms=sink_elapsed,
-                input_count=len(documents),
-                output_count=len(sink_result.updated_source_uris)
-                + len(sink_result.skipped_source_uris),
             )
+        )
+        sink_report = IngestStageReport(
+            stage=PipelineStage.PERSIST,
+            elapsed_ms=sink_elapsed,
+            input_count=len(documents),
+            output_count=len(sink_result.updated_source_uris)
+            + len(sink_result.skipped_source_uris),
+        )
+        return sink_result, persisted, sink_name, sink_report
 
-        # --- Run report ---
+    def _build_result(
+        self,
+        *,
+        run_start: float,
+        loaded_sources: list[LoadedSource],
+        documents: list[Document],
+        errors: list[DocumentError],
+        load_report: IngestStageReport,
+        parse_report: IngestStageReport,
+        chunk_report: IngestStageReport,
+        sink_report: IngestStageReport | None,
+        checkpoint: CheckpointStore | None,
+        checkpoint_skipped_source_uris: list[str],
+        sink_result: SinkUpsertResult,
+        persisted: bool,
+        sink_name: str | None,
+        run_manifest: RunManifest,
+        run_id_text: str,
+    ) -> IngestResult:
         run_elapsed = (time.perf_counter() - run_start) * 1000
         stage_reports_list: list[IngestStageReport] = [
             load_report,
