@@ -246,7 +246,7 @@ def test_reopening_database_with_mismatched_schema_version_raises() -> None:
         match=(
             rf"Database schema version {SCHEMA_VERSION + 1} does not match "
             rf"docprep schema version {SCHEMA_VERSION}\. "
-            r"Run docprep migrate or recreate the database\."
+            r"Run 'docprep migrate --db <url>' or recreate the database\."
         ),
     ):
         _ = SQLAlchemySink(engine=engine)

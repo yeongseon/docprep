@@ -78,7 +78,7 @@ class SQLAlchemySink:
                 raise SinkError(
                     "Database schema version "
                     f"{stored} does not match docprep schema version {SCHEMA_VERSION}. "
-                    "Run docprep migrate or recreate the database."
+                    "Run 'docprep migrate --db <url>' or recreate the database."
                 )
 
     def migrate(self) -> None:
