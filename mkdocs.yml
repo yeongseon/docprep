@@ -1,0 +1,89 @@
+site_name: docprep
+site_description: Deterministic chunk IDs and incremental sync for document ingestion
+site_url: https://yeongseon.github.io/docprep/
+repo_url: https://github.com/yeongseon/docprep
+repo_name: yeongseon/docprep
+edit_uri: edit/main/docs/
+
+exclude_docs: |
+  README.md
+  decisions/README.md
+
+not_in_nav: |
+  decisions/template.md
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - content.code.annotate
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Guides:
+      - Configuration: configuration.md
+      - CLI Reference: cli-reference.md
+      - Python API: python-api.md
+      - Export: export.md
+  - Concepts:
+      - Architecture: architecture.md
+      - Lifecycle: lifecycle.md
+      - Performance: performance.md
+      - Plugins: plugins.md
+      - Adapters: adapters.md
+  - Design Decisions:
+      - Overview: decisions/index.md
+      - "ADR-0001: Identity Model": decisions/0001-identity-model.md
+      - "ADR-0002: Adapter-Not-Parser": decisions/0002-adapter-not-parser.md
+      - "ADR-0003: Chunking Strategy": decisions/0003-chunking-strategy.md
+      - "ADR-0004: Plugin Registry": decisions/0004-plugin-registry.md
+      - "ADR-0005: Diff-Then-Sync": decisions/0005-diff-then-sync.md
+      - "ADR-0006: Export Contract": decisions/0006-export-contract.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yeongseon/docprep
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/docprep/
