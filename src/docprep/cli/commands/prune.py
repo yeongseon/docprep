@@ -29,7 +29,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 def handle(args: argparse.Namespace) -> int:
     from docprep.cli.formatters import format_delete_result
     from docprep.config import DocPrepConfig
-    from docprep.loaders.markdown import MarkdownLoader
+    from docprep.loaders.filesystem import FileSystemLoader
     from docprep.registry import build_loader
     from docprep.scope import derive_scope, uri_in_scope
 
@@ -39,7 +39,7 @@ def handle(args: argparse.Namespace) -> int:
     source = _resolve_source(args)
     sink = _get_sink(args)
 
-    loader = build_loader(config.loader) if config.loader else MarkdownLoader()
+    loader = build_loader(config.loader) if config.loader else FileSystemLoader()
     loaded_sources = list(loader.load(source))
     loaded_uris = {loaded_source.source_uri for loaded_source in loaded_sources}
 

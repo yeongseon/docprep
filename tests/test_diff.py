@@ -68,7 +68,7 @@ def test_first_ingestion_marks_all_added() -> None:
     current = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"), ("usage", "s2")),
-        chunk_entries=(("intro:c1", "c1"), ("usage:c2", "c2")),
+        chunk_entries=(("intro:chunk_0", "c1"), ("usage:chunk_0", "c2")),
     )
 
     diff = compute_diff_from_documents(None, current)
@@ -84,12 +84,12 @@ def test_identical_reingestion_marks_all_unchanged() -> None:
     previous = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"), ("usage", "s2")),
-        chunk_entries=(("intro:c1", "c1"), ("usage:c2", "c2")),
+        chunk_entries=(("intro:chunk_0", "c1"), ("usage:chunk_0", "c2")),
     )
     current = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"), ("usage", "s2")),
-        chunk_entries=(("intro:c1", "c1"), ("usage:c2", "c2")),
+        chunk_entries=(("intro:chunk_0", "c1"), ("usage:chunk_0", "c2")),
     )
 
     diff = compute_diff_from_documents(previous, current)
@@ -103,12 +103,12 @@ def test_modified_content_marks_matching_anchors_modified() -> None:
     previous = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"),),
-        chunk_entries=(("intro:c1", "c1"),),
+        chunk_entries=(("intro:chunk_0", "c1"),),
     )
     current = _build_document(
         source_checksum="rev-2",
         section_entries=(("intro", "s1-new"),),
-        chunk_entries=(("intro:c1", "c1-new"),),
+        chunk_entries=(("intro:chunk_0", "c1-new"),),
     )
 
     diff = compute_diff_from_documents(previous, current)
@@ -122,19 +122,19 @@ def test_section_added_is_reported() -> None:
     previous = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"),),
-        chunk_entries=(("intro:c1", "c1"),),
+        chunk_entries=(("intro:chunk_0", "c1"),),
     )
     current = _build_document(
         source_checksum="rev-2",
         section_entries=(("intro", "s1"), ("usage", "s2")),
-        chunk_entries=(("intro:c1", "c1"), ("usage:c2", "c2")),
+        chunk_entries=(("intro:chunk_0", "c1"), ("usage:chunk_0", "c2")),
     )
 
     diff = compute_diff_from_documents(previous, current)
 
     assert tuple(delta.anchor for delta in diff.section_deltas) == ("usage", "intro")
     assert tuple(delta.status for delta in diff.section_deltas) == ("added", "unchanged")
-    assert tuple(delta.anchor for delta in diff.chunk_deltas) == ("usage:c2", "intro:c1")
+    assert tuple(delta.anchor for delta in diff.chunk_deltas) == ("usage:chunk_0", "intro:chunk_0")
     assert tuple(delta.status for delta in diff.chunk_deltas) == ("added", "unchanged")
 
 
@@ -142,19 +142,19 @@ def test_section_removed_is_reported() -> None:
     previous = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"), ("usage", "s2")),
-        chunk_entries=(("intro:c1", "c1"), ("usage:c2", "c2")),
+        chunk_entries=(("intro:chunk_0", "c1"), ("usage:chunk_0", "c2")),
     )
     current = _build_document(
         source_checksum="rev-2",
         section_entries=(("intro", "s1"),),
-        chunk_entries=(("intro:c1", "c1"),),
+        chunk_entries=(("intro:chunk_0", "c1"),),
     )
 
     diff = compute_diff_from_documents(previous, current)
 
     assert tuple(delta.anchor for delta in diff.section_deltas) == ("usage", "intro")
     assert tuple(delta.status for delta in diff.section_deltas) == ("removed", "unchanged")
-    assert tuple(delta.anchor for delta in diff.chunk_deltas) == ("usage:c2", "intro:c1")
+    assert tuple(delta.anchor for delta in diff.chunk_deltas) == ("usage:chunk_0", "intro:chunk_0")
     assert tuple(delta.status for delta in diff.chunk_deltas) == ("removed", "unchanged")
 
 
@@ -162,12 +162,12 @@ def test_mixed_changes_follow_status_ordering() -> None:
     previous = _build_document(
         source_checksum="rev-1",
         section_entries=(("a", "sa"), ("b", "sb"), ("c", "sc")),
-        chunk_entries=(("a:ca", "ca"), ("b:cb", "cb"), ("c:cc", "cc")),
+        chunk_entries=(("a:chunk_0", "ca"), ("b:chunk_0", "cb"), ("c:chunk_0", "cc")),
     )
     current = _build_document(
         source_checksum="rev-2",
         section_entries=(("b", "sb-new"), ("c", "sc"), ("d", "sd")),
-        chunk_entries=(("b:cb", "cb-new"), ("c:cc", "cc"), ("d:cd", "cd")),
+        chunk_entries=(("b:chunk_0", "cb-new"), ("c:chunk_0", "cc"), ("d:chunk_0", "cd")),
     )
 
     diff = compute_diff_from_documents(previous, current)
@@ -179,7 +179,12 @@ def test_mixed_changes_follow_status_ordering() -> None:
         "removed",
         "unchanged",
     )
-    assert tuple(delta.anchor for delta in diff.chunk_deltas) == ("d:cd", "b:cb", "a:ca", "c:cc")
+    assert tuple(delta.anchor for delta in diff.chunk_deltas) == (
+        "d:chunk_0",
+        "b:chunk_0",
+        "a:chunk_0",
+        "c:chunk_0",
+    )
     assert tuple(delta.status for delta in diff.chunk_deltas) == (
         "added",
         "modified",
@@ -202,12 +207,12 @@ def test_reordered_sections_with_same_content_are_unchanged() -> None:
     previous = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"), ("usage", "s2")),
-        chunk_entries=(("intro:c1", "c1"), ("usage:c2", "c2")),
+        chunk_entries=(("intro:chunk_0", "c1"), ("usage:chunk_0", "c2")),
     )
     current = _build_document(
         source_checksum="rev-2",
         section_entries=(("usage", "s2"), ("intro", "s1")),
-        chunk_entries=(("usage:c2", "c2"), ("intro:c1", "c1")),
+        chunk_entries=(("usage:chunk_0", "c2"), ("intro:chunk_0", "c1")),
     )
 
     diff = compute_diff_from_documents(previous, current)
@@ -231,7 +236,7 @@ def test_revision_diff_to_dict_is_json_serializable() -> None:
     current = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"),),
-        chunk_entries=(("intro:c1", "c1"),),
+        chunk_entries=(("intro:chunk_0", "c1"),),
     )
 
     diff = compute_diff_from_documents(None, current)
@@ -246,7 +251,7 @@ def test_revision_diff_to_dict_is_json_serializable() -> None:
 
 def test_diff_performance_for_500_sections_under_100ms() -> None:
     section_entries = tuple((f"s-{idx}", f"hs-{idx}") for idx in range(500))
-    chunk_entries = tuple((f"s-{idx}:c-{idx}", f"hc-{idx}") for idx in range(500))
+    chunk_entries = tuple((f"s-{idx}:chunk_0", f"hc-{idx}") for idx in range(500))
     previous = _build_document(
         source_checksum="rev-1",
         section_entries=section_entries,
@@ -270,12 +275,12 @@ def test_compute_diff_wrapper_accepts_ingest_results() -> None:
     previous_document = _build_document(
         source_checksum="rev-1",
         section_entries=(("intro", "s1"),),
-        chunk_entries=(("intro:c1", "c1"),),
+        chunk_entries=(("intro:chunk_0", "c1"),),
     )
     current_document = _build_document(
         source_checksum="rev-2",
         section_entries=(("intro", "s1-new"), ("usage", "s2")),
-        chunk_entries=(("intro:c1", "c1-new"), ("usage:c2", "c2")),
+        chunk_entries=(("intro:chunk_0", "c1-new"), ("usage:chunk_0", "c2")),
     )
     previous = IngestResult(documents=(previous_document,))
     current = IngestResult(documents=(current_document,))

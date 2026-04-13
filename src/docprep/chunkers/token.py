@@ -73,7 +73,6 @@ class TokenChunker:
 
             structural_annotations = extract_structural_annotations(text)
             ranges = self._split_ranges(text)
-            dup_counts: dict[tuple[str, str], int] = {}
             previous_base_text = ""
             for section_chunk_idx, chunk_range in enumerate(ranges):
                 base_text = text[chunk_range.start : chunk_range.end]
@@ -93,7 +92,7 @@ class TokenChunker:
                     continue
 
                 c_hash = compute_content_hash(fragment)
-                c_anchor = compute_chunk_anchor(section.anchor, c_hash, dup_counts)
+                c_anchor = compute_chunk_anchor(section.anchor, section_chunk_idx)
                 cid = chunk_id(document.id, c_anchor)
                 structure_types = structure_types_for_range(
                     structural_annotations,

@@ -33,6 +33,8 @@ print(diff.summary)
 
 For each section and chunk, the diff engine compares `anchor → content_hash` mappings:
 
+- Section anchors are heading-based; chunk anchors are position-based within each section (for example, `intro:chunk_0`).
+
 | Previous anchor exists? | Hash matches? | Status |
 |------------------------|---------------|--------|
 | No | — | `added` |
@@ -81,6 +83,8 @@ This exports only `VectorRecordV1` entries for chunks that are `added` or `modif
 ## Source Deletion
 
 docprep does **not** automatically delete stored documents when source files are removed. Deletion requires explicit action via one of two mechanisms:
+
+This is by design: `ingest` is additive-only. It upserts new and changed documents but never removes stale ones. This separation ensures that ingestion runs are safe to retry, can operate on partial source directories, and never accidentally delete data. Use `prune` for explicit stale document removal.
 
 ### CLI: `docprep prune`
 

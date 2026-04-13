@@ -72,7 +72,6 @@ class SizeChunker:
             structural_annotations = extract_structural_annotations(text)
             ranges = self._split_ranges(text)
             ranges = self._merge_small_ranges(text, ranges)
-            dup_counts: dict[tuple[str, str], int] = {}
             previous_base_text = ""
             for section_chunk_idx, chunk_range in enumerate(ranges):
                 base_text = text[chunk_range.start : chunk_range.end]
@@ -80,12 +79,19 @@ class SizeChunker:
                 if self._overlap_chars > 0 and previous_base_text:
                     overlap = previous_base_text[-self._overlap_chars :]
                     if overlap and base_text:
-                        fragment = overlap + base_text
+                        joiner = ""
+                        if (
+                            chunk_range.start > 0
+                            and text[chunk_range.start - 1].isspace()
+                            and not overlap[-1].isspace()
+                        ):
+                            joiner = " "
+                        fragment = overlap + joiner + base_text
                 if not base_text.strip() or not fragment.strip():
                     continue
 
                 c_hash = compute_content_hash(fragment)
-                c_anchor = compute_chunk_anchor(section.anchor, c_hash, dup_counts)
+                c_anchor = compute_chunk_anchor(section.anchor, section_chunk_idx)
                 cid = chunk_id(document.id, c_anchor)
                 structure_types = structure_types_for_range(
                     structural_annotations,

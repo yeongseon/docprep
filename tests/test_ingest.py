@@ -448,6 +448,9 @@ def test_ingestor_resume_after_interrupted_run(tmp_path: Path) -> None:
             return _document_from_loaded_source(loaded_source)
 
     class FailSecondSink:
+        def __init__(self):
+            self.call_count = 0
+
         def upsert(
             self,
             documents: Sequence[Document],
@@ -455,29 +458,38 @@ def test_ingestor_resume_after_interrupted_run(tmp_path: Path) -> None:
             run_id: uuid.UUID | None = None,
         ) -> SinkUpsertResult:
             del run_id
-            doc = documents[0]
-            if doc.source_uri == second_source.source_uri:
+            self.call_count += 1
+            if self.call_count == 1:
                 raise RuntimeError("sink fail")
-            return SinkUpsertResult(updated_source_uris=(doc.source_uri,))
+            return SinkUpsertResult(
+                updated_source_uris=tuple(doc.source_uri for doc in documents),
+            )
 
-    with pytest.raises(IngestError, match="Persist failed for docs/b.md"):
+    fail_sink = FailSecondSink()
+    with pytest.raises(IngestError, match="Persist failed for 2 document"):
         _ = Ingestor(
             loader=MultiLoader(),
             parser=PassthroughParser(),
             chunkers=[],
-            sink=FailSecondSink(),
+            sink=fail_sink,
             error_mode=ErrorMode.FAIL_FAST,
         ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
 
+    # Resume: both docs were checkpointed during parse stage, so both
+    # are skipped on resume.  The sink (which now succeeds) receives no
+    # documents because there are none left to process.
     second_run = Ingestor(
         loader=MultiLoader(),
         parser=PassthroughParser(),
         chunkers=[],
+        sink=fail_sink,
     ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
 
-    assert second_run.skipped_source_uris == (first_source.source_uri,)
-    assert second_run.processed_count == 1
-    assert second_run.documents[0].source_uri == second_source.source_uri
+    assert second_run.skipped_source_uris == (
+        first_source.source_uri,
+        second_source.source_uri,
+    )
+    assert second_run.processed_count == 0
 
 
 def test_ingestor_workers_with_errors_continue(tmp_path: Path) -> None:
@@ -761,7 +773,8 @@ def test_ingestor_continue_on_error_collects_structured_errors(tmp_path: Path) -
     )
 
 
-def test_ingestor_persist_failure_per_document_does_not_affect_others(tmp_path: Path) -> None:
+def test_ingestor_persist_failure_affects_entire_batch(tmp_path: Path) -> None:
+    """Batch upsert is all-or-nothing: if the sink raises, all documents fail."""
     first_source = _loaded_source(source_uri="docs/failing.md")
     second_source = _loaded_source(source_uri="docs/ok.md")
     sink = SelectivelyFailingSink(fail_uris={"docs/failing.md"})
@@ -783,15 +796,14 @@ def test_ingestor_persist_failure_per_document_does_not_affect_others(tmp_path: 
         error_mode=ErrorMode.CONTINUE_ON_ERROR,
     ).run(tmp_path)
 
-    assert sink.upserted == ["docs/ok.md"]
-    assert result.updated_source_uris == ("docs/ok.md",)
-    assert result.failed_count == 1
-    assert result.errors[0] == DocumentError(
-        source_uri="docs/failing.md",
-        stage=PipelineStage.PERSIST,
-        error_type="RuntimeError",
-        message="sink fail: docs/failing.md",
-    )
+    # Batch upsert: entire batch fails when any document triggers an error
+    assert sink.upserted == []
+    assert result.updated_source_uris == ()
+    assert result.failed_count == 2
+    assert len(result.errors) == 2
+    assert result.errors[0].source_uri == "docs/failing.md"
+    assert result.errors[0].stage == PipelineStage.PERSIST
+    assert result.errors[0].error_type == "RuntimeError"
 
 
 def test_ingestor_fail_fast_stops_on_persist_failure(tmp_path: Path) -> None:
@@ -808,7 +820,7 @@ def test_ingestor_fail_fast_stops_on_persist_failure(tmp_path: Path) -> None:
         def parse(self, loaded_source: LoadedSource) -> Document:
             return _document_from_loaded_source(loaded_source)
 
-    with pytest.raises(IngestError, match="Persist failed for docs/failing.md"):
+    with pytest.raises(IngestError, match="Persist failed for 2 document"):
         _ = Ingestor(
             loader=SingleLoader(),
             parser=PassthroughParser(),
@@ -846,7 +858,8 @@ def test_document_error_in_ingest_result(tmp_path: Path) -> None:
     assert result.failed_source_uris == ("docs/failing.md",)
 
 
-def test_ingestor_per_document_atomicity_with_sqlalchemy(tmp_path: Path) -> None:
+def test_ingestor_batch_atomicity_with_sqlalchemy(tmp_path: Path) -> None:
+    """Batch upsert is all-or-nothing: when the batch fails, no documents are persisted."""
     first_source = _loaded_source(source_uri="docs/ok.md")
     second_source = _loaded_source(source_uri="docs/failing.md")
     engine = create_engine("sqlite://")
@@ -895,9 +908,10 @@ def test_ingestor_per_document_atomicity_with_sqlalchemy(tmp_path: Path) -> None
             select(DocumentRow).where(DocumentRow.source_uri == "docs/failing.md")
         ).scalar_one_or_none()
 
-    assert ok_row is not None
+    # Batch upsert: entire batch fails, nothing persisted
+    assert ok_row is None
     assert failing_row is None
-    assert result.failed_source_uris == ("docs/failing.md",)
+    assert result.failed_count == 2
 
 
 def test_ingestor_with_config_builds_and_runs_pipeline(tmp_path: Path) -> None:
@@ -1314,7 +1328,7 @@ def test_sink_failure_emits_run_failed_progress_event() -> None:
             del run_id
             raise RuntimeError("sink boom")
 
-    with pytest.raises(IngestError, match="Persist failed for docs/example.md"):
+    with pytest.raises(IngestError, match="Persist failed for 1 document"):
         Ingestor(
             loader=SingleLoader(),
             parser=PassthroughParser(),

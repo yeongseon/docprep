@@ -52,7 +52,7 @@ docprep produces the same chunk IDs for the same input, every time. When documen
 | **Adapters** | — (third-party by design) | MarkItDown, Docling, etc. |
 | **Export** | JSONL (VectorRecordV1) | — |
 
-> **Default behavior**: `ingest("docs/")` uses the Markdown loader. For multi-format ingestion, configure `loader.type = "filesystem"` and `parser.type = "auto"` in `docprep.toml`. See [Configuration](docs/configuration.md).
+> **Default behavior**: `ingest("docs/")` uses the FileSystem loader, which picks up `.md`, `.txt`, `.html`, `.htm`, and `.rst` files. For Markdown-only ingestion, set `loader.type = "markdown"` in `docprep.toml`.
 
 ## Installation
 
@@ -83,9 +83,11 @@ create_tables = true
 type = "heading"
 
 [[chunkers]]
-type = "token"
-max_tokens = 512
+type = "size"
+max_chars = 1500
 ```
+
+For token-aware splitting (recommended when targeting specific embedding models), use `type = "token"` with `max_tokens = 512`.
 
 Then run:
 

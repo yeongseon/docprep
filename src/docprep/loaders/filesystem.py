@@ -6,15 +6,7 @@ from typing import Literal
 
 from ..exceptions import LoadError
 from ..ids import canonicalize_source_uri, sha256_checksum
-from .types import LoadedSource
-
-_MEDIA_TYPE_BY_SUFFIX: dict[str, str] = {
-    ".md": "text/markdown",
-    ".txt": "text/plain",
-    ".html": "text/html",
-    ".htm": "text/html",
-    ".rst": "text/x-rst",
-}
+from .types import MEDIA_TYPE_BY_SUFFIX, LoadedSource
 
 
 class FileSystemLoader:
@@ -105,7 +97,7 @@ class FileSystemLoader:
 
     def _load_file(self, file_path: Path, source_root: Path) -> LoadedSource:
         suffix = file_path.suffix.lower()
-        media_type = _MEDIA_TYPE_BY_SUFFIX.get(suffix)
+        media_type = MEDIA_TYPE_BY_SUFFIX.get(suffix)
         if media_type is None:
             raise LoadError(f"Unsupported file extension for {file_path}")
 

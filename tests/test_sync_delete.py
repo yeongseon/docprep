@@ -26,7 +26,6 @@ def _make_doc(
 ) -> Document:
     doc_id_val = document_id(uri)
     sibling_counts: dict[tuple[str, str], int] = {}
-    dup_counts: dict[tuple[str, str], int] = {}
 
     section_counts = tuple(chunks_per_section or [1] * len(section_bodies))
     section_rows: list[Section] = []
@@ -55,7 +54,7 @@ def _make_doc(
         for chunk_index in range(chunk_count):
             chunk_text = section_body if chunk_count == 1 else f"{section_body} [{chunk_index}]"
             c_hash = content_hash(chunk_text)
-            c_anchor_str = chunk_anchor(s_anchor, c_hash, dup_counts)
+            c_anchor_str = chunk_anchor(s_anchor, chunk_index)
             c_id = chunk_id(doc_id_val, c_anchor_str)
             chunk_rows.append(
                 Chunk(

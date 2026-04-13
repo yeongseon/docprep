@@ -7,7 +7,7 @@ from pathlib import Path
 
 from docprep.exceptions import LoadError
 from docprep.ids import canonicalize_source_uri, sha256_checksum
-from docprep.loaders.types import LoadedSource
+from docprep.loaders.types import MEDIA_TYPE_BY_SUFFIX, LoadedSource
 
 
 class MarkdownLoader:
@@ -55,5 +55,5 @@ class MarkdownLoader:
             source_uri=canonical_uri,
             raw_text=raw_text,
             checksum=sha256_checksum(raw_text),
-            media_type="text/markdown",
+            media_type=MEDIA_TYPE_BY_SUFFIX.get(file_path.suffix.lower(), "text/markdown"),
         )

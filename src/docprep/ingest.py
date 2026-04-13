@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 DEFAULT_CHUNKERS: Sequence[Chunker] = (HeadingChunker(), SizeChunker())
 """Canonical default chunker pipeline — used by both Ingestor and CLI.
 
-Provides heading-based sectioning followed by token-size splitting.
+Provides heading-based sectioning followed by character-budget splitting.
 """
 
 
@@ -460,7 +460,7 @@ class Ingestor:
                     )
                 )
                 documents.append(doc)
-                if checkpoint is not None and self._sink is None:
+                if checkpoint is not None:
                     checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
                     checkpoint.save(run_id_text)
             parse_elapsed_total = (time.perf_counter() - parse_start) * 1000 - chunk_elapsed_total
@@ -680,7 +680,7 @@ class Ingestor:
                     )
                 )
                 documents.append(result.document)
-                if checkpoint is not None and self._sink is None:
+                if checkpoint is not None:
                     checkpoint.mark_completed(
                         result.document.source_uri,
                         result.document.source_checksum,
@@ -727,6 +727,13 @@ class Ingestor:
         run_id_text: str,
         run_manifest: RunManifest,
     ) -> tuple[SinkUpsertResult, bool, str | None, IngestStageReport | None]:
+        """Persist documents to the configured sink.
+
+        Ingest is additive-only by design: it upserts documents but never deletes.
+        To remove stale documents, use the separate ``prune`` command or
+        ``sink.sync()`` API. This separation ensures ingest runs are safe to
+        retry and never accidentally delete data.
+        """
         sink_result = SinkUpsertResult()
         persisted = False
         sink_name: str | None = None
@@ -745,33 +752,34 @@ class Ingestor:
         )
         sink_result_skipped: list[str] = []
         sink_result_updated: list[str] = []
-        persisted_documents: list[Document] = []
-        for doc in documents:
-            try:
-                doc_result = self._sink.upsert((doc,), run_id=run_manifest.run_id)
-                if doc_result.skipped_source_uris:
-                    sink_result_skipped.extend(doc_result.skipped_source_uris)
-                    self._emit(
-                        IngestProgressEvent(
-                            stage=PipelineStage.PERSIST,
-                            event="skipped",
-                            source_uri=doc.source_uri,
-                        )
+        upsert_succeeded = False
+        try:
+            batch_result = self._sink.upsert(documents, run_id=run_manifest.run_id)
+            sink_result_skipped.extend(batch_result.skipped_source_uris)
+            sink_result_updated.extend(batch_result.updated_source_uris)
+
+            # Emit per-document progress events for skipped documents
+            for uri in batch_result.skipped_source_uris:
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.PERSIST,
+                        event="skipped",
+                        source_uri=uri,
                     )
-                if doc_result.updated_source_uris:
-                    sink_result_updated.extend(doc_result.updated_source_uris)
-                    self._emit(
-                        IngestProgressEvent(
-                            stage=PipelineStage.PERSIST,
-                            event="updated",
-                            source_uri=doc.source_uri,
-                        )
+                )
+
+            # Emit per-document progress events for updated documents
+            for uri in batch_result.updated_source_uris:
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.PERSIST,
+                        event="updated",
+                        source_uri=uri,
                     )
-                if checkpoint is not None:
-                    checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
-                    checkpoint.save(run_id_text)
-                persisted_documents.append(doc)
-            except Exception as exc:
+                )
+            upsert_succeeded = True
+        except Exception as exc:
+            for doc in documents:
                 error = DocumentError(
                     source_uri=doc.source_uri,
                     stage=PipelineStage.PERSIST,
@@ -801,22 +809,24 @@ class Ingestor:
                         error_type=type(exc).__name__,
                     )
                 )
-                if self._error_mode == ErrorMode.FAIL_FAST:
-                    self._emit(
-                        IngestProgressEvent(
-                            stage=PipelineStage.RUN,
-                            event="failed",
-                            error_type=type(exc).__name__,
-                        )
+            if self._error_mode == ErrorMode.FAIL_FAST:
+                self._emit(
+                    IngestProgressEvent(
+                        stage=PipelineStage.RUN,
+                        event="failed",
+                        error_type=type(exc).__name__,
                     )
-                    raise IngestError(f"Persist failed for {doc.source_uri}: {exc}") from exc
+                )
+                raise IngestError(
+                    f"Persist failed for {len(documents)} document(s): {exc}"
+                ) from exc
 
         sink_result = SinkUpsertResult(
             skipped_source_uris=tuple(sink_result_skipped),
             updated_source_uris=tuple(sink_result_updated),
         )
 
-        if persisted_documents:
+        if documents and upsert_succeeded:
             record_run = getattr(self._sink, "record_run", None)
             if callable(record_run):
                 _ = record_run(run_manifest)
@@ -950,9 +960,9 @@ class Ingestor:
             from .registry import build_loader
 
             return build_loader(config.loader)
-        from .loaders.markdown import MarkdownLoader
+        from .loaders.filesystem import FileSystemLoader
 
-        return MarkdownLoader()
+        return FileSystemLoader()
 
     @staticmethod
     def _parser_from_config(config: DocPrepConfig | None) -> Parser:

@@ -18,7 +18,7 @@ We needed an identity scheme where:
 
 We adopted a two-part identity model:
 
-- **Anchor** (stable lineage): A UUIDv5 derived from the document's heading structure. Section anchors are built from a normalized heading slug plus a sibling occurrence index (to disambiguate repeated headings). Chunk anchors combine the section anchor with the chunk's position within the section. Anchors survive content edits as long as the heading structure doesn't change.
+- **Anchor** (stable lineage): A UUIDv5 derived from the document's heading structure. Section anchors are built from a normalized heading slug plus a sibling occurrence index (to disambiguate repeated headings). Chunk anchors combine the section anchor with the chunk's position within the section (for example, `intro:chunk_0`). Anchors survive content edits as long as the heading structure doesn't change.
 
 - **Version hash** (change detection): A SHA-256 hash of the chunk's actual content. This changes whenever the text changes, even if the anchor stays the same.
 

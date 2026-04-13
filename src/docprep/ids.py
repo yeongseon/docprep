@@ -1,8 +1,8 @@
 """Deterministic ID generation and checksum utilities.
 
-Identity model v2: anchor-based.
+Identity model v3: anchor-based.
 - Section identity: hierarchical parent-scoped path anchors
-- Chunk identity: section_anchor + content_hash
+- Chunk identity: section_anchor + position index
 - IDENTITY_VERSION tracks breaking changes to ID generation
 """
 
@@ -18,7 +18,7 @@ import uuid
 DOCPREP_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 
 # Bump when any ID-generation logic changes. Sinks should re-ingest when version differs.
-IDENTITY_VERSION = 2
+IDENTITY_VERSION = 3
 
 # Schema version for database tables and export contracts.
 # Bump when table structure, field names, or export shape changes.
@@ -103,22 +103,10 @@ def content_hash(text: str) -> str:
 
 def chunk_anchor(
     sect_anchor: str,
-    chunk_content_hash: str,
-    dup_counts: dict[tuple[str, str], int],
+    section_chunk_index: int,
 ) -> str:
-    """Build a chunk anchor from section anchor + content hash.
-
-    Format: section_anchor:content_hash, with ~N for duplicate identical texts.
-    dup_counts is mutated: maps (section_anchor, content_hash) -> seen count.
-    """
-    key = (sect_anchor, chunk_content_hash)
-    count = dup_counts.get(key, 0) + 1
-    dup_counts[key] = count
-
-    base = f"{sect_anchor}:{chunk_content_hash}"
-    if count > 1:
-        return f"{base}~{count}"
-    return base
+    """Build a chunk anchor from section anchor + chunk position index."""
+    return f"{sect_anchor}:chunk_{section_chunk_index}"
 
 
 def canonicalize_source_uri(

@@ -27,12 +27,11 @@ def _make_doc(
 ) -> Document:
     doc_id = document_id(source_uri)
     sibling_counts: dict[tuple[str, str], int] = {}
-    dup_counts: dict[tuple[str, str], int] = {}
     s_anchor = section_anchor("Intro", "__root__", sibling_counts)
     s_hash = content_hash(body)
     s_id = section_id(doc_id, s_anchor)
     c_hash = content_hash(body)
-    c_anchor_str = chunk_anchor(s_anchor, c_hash, dup_counts)
+    c_anchor_str = chunk_anchor(s_anchor, 0)
     c_id = chunk_id(doc_id, c_anchor_str)
     return Document(
         id=doc_id,
@@ -82,10 +81,9 @@ def _make_doc_with_multiple_sections_and_chunks(
     intro_text_2 = "Intro chunk two"
     detail_text = "Details chunk"
 
-    dup_counts: dict[tuple[str, str], int] = {}
-    intro_chunk_1_anchor = chunk_anchor(intro_anchor, content_hash(intro_text_1), dup_counts)
-    intro_chunk_2_anchor = chunk_anchor(intro_anchor, content_hash(intro_text_2), dup_counts)
-    detail_chunk_anchor = chunk_anchor(detail_anchor, content_hash(detail_text), dup_counts)
+    intro_chunk_1_anchor = chunk_anchor(intro_anchor, 0)
+    intro_chunk_2_anchor = chunk_anchor(intro_anchor, 1)
+    detail_chunk_anchor = chunk_anchor(detail_anchor, 0)
 
     body = f"{intro_text_1}\n{intro_text_2}\n{detail_text}"
     return Document(

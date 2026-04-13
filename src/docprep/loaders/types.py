@@ -15,3 +15,12 @@ class LoadedSource:
     checksum: str
     media_type: str = "text/markdown"
     source_metadata: dict[str, object] = field(default_factory=dict)
+
+
+MEDIA_TYPE_BY_SUFFIX: dict[str, str] = {
+    ".md": "text/markdown",
+    ".txt": "text/plain",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".rst": "text/x-rst",
+}

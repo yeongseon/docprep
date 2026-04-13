@@ -73,7 +73,7 @@ def test_section_id_is_deterministic_from_anchor() -> None:
 
 def test_chunk_id_is_deterministic_from_chunk_anchor() -> None:
     doc_id = uuid.uuid4()
-    c_anchor = "intro/install:deadbeefdeadbeef"
+    c_anchor = "intro/install:chunk_0"
 
     assert chunk_id(doc_id, c_anchor) == chunk_id(doc_id, c_anchor)
     assert chunk_id(doc_id, c_anchor) == uuid.uuid5(
@@ -91,16 +91,12 @@ def test_content_hash_is_deterministic_and_truncated() -> None:
     assert digest == hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def test_chunk_anchor_basic_and_duplicates() -> None:
-    dup_counts: dict[tuple[str, str], int] = {}
+def test_chunk_anchor_basic_and_positions() -> None:
+    first = chunk_anchor("intro", 0)
+    second = chunk_anchor("intro", 1)
 
-    first = chunk_anchor("intro", "0123456789abcdef", dup_counts)
-    second = chunk_anchor("intro", "0123456789abcdef", dup_counts)
-    other = chunk_anchor("intro", "ffffffffffffffff", dup_counts)
-
-    assert first == "intro:0123456789abcdef"
-    assert second == "intro:0123456789abcdef~2"
-    assert other == "intro:ffffffffffffffff"
+    assert first == "intro:chunk_0"
+    assert second == "intro:chunk_1"
 
 
 def test_different_inputs_produce_different_ids() -> None:
@@ -108,7 +104,7 @@ def test_different_inputs_produce_different_ids() -> None:
 
     assert document_id("a.md") != document_id("b.md")
     assert section_id(doc_id, "intro") != section_id(doc_id, "usage")
-    assert chunk_id(doc_id, "intro:aaaa") != chunk_id(doc_id, "intro:bbbb")
+    assert chunk_id(doc_id, "intro:chunk_0") != chunk_id(doc_id, "intro:chunk_1")
 
 
 def test_sha256_checksum_returns_expected_hex_digest() -> None:
@@ -117,8 +113,8 @@ def test_sha256_checksum_returns_expected_hex_digest() -> None:
     assert sha256_checksum(content) == hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def test_identity_version_is_2() -> None:
-    assert IDENTITY_VERSION == 2
+def test_identity_version_is_3() -> None:
+    assert IDENTITY_VERSION == 3
 
 
 def test_schema_version_is_1() -> None:

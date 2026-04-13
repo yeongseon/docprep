@@ -301,7 +301,7 @@ class IngestResult:
     processed_count: int = 0
     skipped_count: int = 0
     updated_count: int = 0
-    deleted_count: int = 0
+    deleted_count: int = 0  # Always 0: ingest is additive-only; use `prune` to delete.
     failed_count: int = 0
     skipped_source_uris: tuple[str, ...] = ()
     updated_source_uris: tuple[str, ...] = ()
