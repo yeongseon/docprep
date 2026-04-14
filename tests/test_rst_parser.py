@@ -150,3 +150,17 @@ def test_config_registry_and_builder_support_rst_parser(tmp_path: Path) -> None:
     assert config.parser == RstParserConfig()
     assert "rst" in BUILTIN_PARSERS
     assert build_parser(RstParserConfig()).__class__ is RstParser
+
+
+def test_rst_preserves_source_metadata() -> None:
+    source = LoadedSource(
+        source_path="docs/example.rst",
+        source_uri="docs/example.rst",
+        raw_text="Heading\n=======\n\nBody",
+        checksum="checksum",
+        media_type="text/x-rst",
+        source_metadata={"lang": "en", "author": "Charlie"},
+    )
+    doc = RstParser().parse(source)
+
+    assert doc.source_metadata == {"lang": "en", "author": "Charlie"}

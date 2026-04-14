@@ -29,6 +29,11 @@ class RstParser:
             source=loaded_source.source_uri,
             field_name="rst_fields",
         )
+        normalized_source_meta = normalize_metadata(
+            loaded_source.source_metadata,
+            source=loaded_source.source_uri,
+            field_name="source_metadata",
+        )
 
         return Document(
             id=document_id(loaded_source.source_uri),
@@ -37,7 +42,7 @@ class RstParser:
             source_checksum=loaded_source.checksum,
             source_type="rst",
             frontmatter=normalized_meta,
-            source_metadata={},
+            source_metadata=normalized_source_meta,
             body_markdown=body_markdown,
             structural_annotations=annotations,
         )

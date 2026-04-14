@@ -8,6 +8,7 @@ from ..chunkers._markdown import extract_structural_annotations
 from ..exceptions import ParseError
 from ..ids import document_id
 from ..loaders.types import LoadedSource
+from ..metadata import normalize_metadata
 from ..models.domain import Document
 
 _WHITESPACE_RE = re.compile(r"[ \t\r\f\v]+")
@@ -280,6 +281,11 @@ class HtmlParser:
         title = parser.title_text or parser.first_h1 or self._source_stem(loaded_source.source_uri)
         body_markdown = "\n\n".join(parser.blocks)
         annotations = extract_structural_annotations(body_markdown)
+        normalized_source_meta = normalize_metadata(
+            loaded_source.source_metadata,
+            source=loaded_source.source_uri,
+            field_name="source_metadata",
+        )
 
         return Document(
             id=document_id(loaded_source.source_uri),
@@ -288,7 +294,7 @@ class HtmlParser:
             source_checksum=loaded_source.checksum,
             source_type="html",
             frontmatter={},
-            source_metadata={},
+            source_metadata=normalized_source_meta,
             body_markdown=body_markdown,
             structural_annotations=annotations,
         )

@@ -83,3 +83,17 @@ def test_html_parser_output_works_with_existing_chunkers() -> None:
 
     assert len(sectioned.sections) == 1
     assert len(chunked.chunks) >= 1
+
+
+def test_html_parser_preserves_source_metadata() -> None:
+    source = LoadedSource(
+        source_path="file:page.html",
+        source_uri="file:page.html",
+        raw_text="<html><body><p>Content</p></body></html>",
+        checksum="checksum",
+        media_type="text/html",
+        source_metadata={"lang": "en", "author": "Bob"},
+    )
+    doc = HtmlParser().parse(source)
+
+    assert doc.source_metadata == {"lang": "en", "author": "Bob"}

@@ -120,6 +120,54 @@ def test_upsert_existing_changed_document_replaces_it() -> None:
         assert revision_rows[1].is_current is True
 
 
+def test_upsert_same_checksum_different_identity_version_triggers_update() -> None:
+    """When identity_version differs, unchanged docs are re-processed (not skipped)."""
+    engine = create_engine("sqlite://")
+    sink = SQLAlchemySink(engine=engine)
+    # Create initial document with identity_version=3 (default)
+    original = _document(checksum="same-checksum", body="Body")
+    _ = sink.upsert([original])
+
+    # Create updated document: same checksum + body, but different identity_version
+    # Manually override identity_version to simulate a version bump scenario
+    updated = Document(
+        id=original.id,
+        source_uri=original.source_uri,
+        title=original.title,
+        source_checksum=original.source_checksum,  # Same checksum
+        identity_version=2,  # Different version
+        source_type=original.source_type,
+        frontmatter=original.frontmatter,
+        source_metadata=original.source_metadata,
+        body_markdown=original.body_markdown,  # Same body
+        sections=original.sections,
+        chunks=original.chunks,
+    )
+
+    # Upsert should treat this as updated, not skipped
+    result = sink.upsert([updated])
+
+    assert result.skipped_source_uris == ()
+    assert result.updated_source_uris == (original.source_uri,)
+
+    # Verify database state: identity_version should be updated
+    with Session(engine) as session:
+        row = session.execute(select(DocumentRow)).scalar_one()
+        assert row.identity_version == 2
+        # Verify revisions: should have 2 revisions now
+        revision_rows = (
+            session.execute(
+                select(DocumentRevisionRow).order_by(DocumentRevisionRow.revision_number)
+            )
+            .scalars()
+            .all()
+        )
+        assert len(revision_rows) == 2
+        assert revision_rows[0].is_current is False
+        assert revision_rows[1].is_current is True
+        assert revision_rows[1].revision_number == 2
+
+
 def test_stats_returns_correct_counts() -> None:
     engine = create_engine("sqlite://")
     sink = SQLAlchemySink(engine=engine)

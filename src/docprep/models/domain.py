@@ -106,6 +106,7 @@ class Document:
     source_uri: str
     title: str
     source_checksum: str
+    identity_version: int = 3
     source_type: str = "markdown"
     frontmatter: Metadata = field(default_factory=dict)
     source_metadata: Metadata = field(default_factory=dict)

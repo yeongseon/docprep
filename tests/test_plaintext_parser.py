@@ -48,3 +48,17 @@ def test_plaintext_parser_title_fallback_supports_non_file_uri() -> None:
     doc = PlainTextParser().parse(_loaded_source("", source_uri="docs/readme.txt"))
 
     assert doc.title == Path("docs/readme.txt").stem
+
+
+def test_plaintext_parser_preserves_source_metadata() -> None:
+    source = LoadedSource(
+        source_path="file:notes.txt",
+        source_uri="file:notes.txt",
+        raw_text="Content",
+        checksum="checksum",
+        media_type="text/plain",
+        source_metadata={"lang": "en", "author": "Alice"},
+    )
+    doc = PlainTextParser().parse(source)
+
+    assert doc.source_metadata == {"lang": "en", "author": "Alice"}

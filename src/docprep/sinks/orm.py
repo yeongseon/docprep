@@ -136,7 +136,7 @@ class ChunkRow(Base):
 
 def domain_to_row(doc: object) -> DocumentRow:
     """Convert a domain Document to ORM rows (DocumentRow with nested children)."""
-    from ..ids import IDENTITY_VERSION
+
     from ..metadata import normalize_metadata
     from ..models.domain import Document
 
@@ -159,7 +159,7 @@ def domain_to_row(doc: object) -> DocumentRow:
         frontmatter=normalized_fm or None,
         source_metadata=normalized_sm or None,
         body_markdown=doc.body_markdown,
-        identity_version=IDENTITY_VERSION,
+        identity_version=doc.identity_version,
         sections=[
             SectionRow(
                 id=str(s.id),
@@ -255,6 +255,7 @@ def row_to_domain(row: DocumentRow) -> object:
         source_uri=row.source_uri,
         title=row.title,
         source_checksum=row.source_checksum,
+        identity_version=row.identity_version,
         source_type=row.source_type,
         frontmatter=fm,
         source_metadata=source_meta,
@@ -324,6 +325,7 @@ def row_to_document_summary(row: DocumentRow) -> object:
         source_uri=row.source_uri,
         title=row.title,
         source_checksum=row.source_checksum,
+        identity_version=row.identity_version,
         source_type=row.source_type,
         frontmatter=fm,
         source_metadata=source_meta,

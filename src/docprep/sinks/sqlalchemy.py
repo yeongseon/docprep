@@ -338,7 +338,11 @@ class SQLAlchemySink:
                         select(DocumentRow).where(DocumentRow.source_uri == doc.source_uri)
                     ).scalar_one_or_none()
 
-                    if existing and existing.source_checksum == doc.source_checksum:
+                    if (
+                        existing
+                        and existing.source_checksum == doc.source_checksum
+                        and existing.identity_version == doc.identity_version
+                    ):
                         skipped.append(doc.source_uri)
                         continue
 
