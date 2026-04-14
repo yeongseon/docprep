@@ -88,7 +88,7 @@ def test_token_chunker_overlap_with_preceding_whitespace() -> None:
     # Should produce chunks with overlap
     assert len(chunked.chunks) >= 2
     # Check that at least one chunk has more tokens than max_tokens (due to overlap)
-    overlapping = [c for c in chunked.chunks if c.token_count > 3]
+    overlapping = [c for c in chunked.chunks if c.token_count is not None and c.token_count > 3]
     assert len(overlapping) >= 1
 
 

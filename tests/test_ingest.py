@@ -448,7 +448,7 @@ def test_ingestor_resume_after_interrupted_run(tmp_path: Path) -> None:
             return _document_from_loaded_source(loaded_source)
 
     class FailSecondSink:
-        def __init__(self):
+        def __init__(self) -> None:
             self.call_count = 0
 
         def upsert(

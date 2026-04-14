@@ -1,62 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#1e293b"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#6366f1"/>
-    </linearGradient>
-  </defs>
+  <!-- Geometric abstract: structured fragmentation -->
 
-  <!-- Background -->
-  <rect width="512" height="512" rx="80" fill="url(#bg)"/>
+  <!-- Large source shape (left) -->
+  <rect x="80" y="136" width="152" height="168" rx="24"
+    fill="#eef2ff" stroke="#6366f1" stroke-width="3"
+    transform="rotate(-4, 156, 220)"/>
 
-  <!-- Left: Single document outline (intact) -->
-  <g transform="translate(100, 100)">
-    <rect width="120" height="160" rx="8" fill="url(#accent)" opacity="0.08"/>
-    <rect width="120" height="160" rx="8" fill="none" stroke="url(#accent)" stroke-width="2.5" opacity="0.6"/>
-    <!-- Minimal text lines -->
-    <rect x="20" y="32" width="60" height="4" rx="2" fill="url(#accent)" opacity="0.35"/>
-    <rect x="20" y="48" width="80" height="4" rx="2" fill="url(#accent)" opacity="0.25"/>
-    <rect x="20" y="72" width="70" height="4" rx="2" fill="url(#accent)" opacity="0.35"/>
-    <rect x="20" y="88" width="50" height="4" rx="2" fill="url(#accent)" opacity="0.25"/>
-    <rect x="20" y="112" width="75" height="4" rx="2" fill="url(#accent)" opacity="0.35"/>
-    <rect x="20" y="128" width="55" height="4" rx="2" fill="url(#accent)" opacity="0.25"/>
+  <!-- Structure lines inside source -->
+  <g transform="rotate(-4, 156, 220)" opacity="0.3">
+    <rect x="112" y="184" width="88" height="5" rx="2.5" fill="#6366f1"/>
+    <rect x="112" y="206" width="64" height="5" rx="2.5" fill="#6366f1"/>
+    <rect x="112" y="228" width="76" height="5" rx="2.5" fill="#6366f1"/>
+    <rect x="112" y="250" width="52" height="5" rx="2.5" fill="#6366f1"/>
   </g>
 
-  <!-- Arrow (minimal) -->
-  <g transform="translate(242, 172)">
-    <line x1="0" y1="0" x2="24" y2="0" stroke="#475569" stroke-width="2" stroke-linecap="round"/>
-    <polyline points="18,-5 26,0 18,5" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
+  <!-- Flow dots -->
+  <circle cx="264" cy="220" r="3.5" fill="#c7d2fe"/>
+  <circle cx="282" cy="220" r="3.5" fill="#a5b4fc"/>
+  <circle cx="300" cy="220" r="3.5" fill="#818cf8"/>
 
-  <!-- Right: Three fragments split apart -->
   <!-- Fragment 1 (top) -->
-  <g transform="translate(290, 92)">
-    <rect width="120" height="44" rx="6" fill="url(#accent)" opacity="0.08"/>
-    <rect width="120" height="44" rx="6" fill="none" stroke="url(#accent)" stroke-width="2" opacity="0.5"/>
-    <rect x="14" y="14" width="56" height="4" rx="2" fill="url(#accent)" opacity="0.4"/>
-    <rect x="14" y="26" width="72" height="4" rx="2" fill="url(#accent)" opacity="0.25"/>
-  </g>
+  <rect x="328" y="108" width="112" height="68" rx="16"
+    fill="#818cf8"/>
 
-  <!-- Fragment 2 (middle) -->
-  <g transform="translate(290, 152)">
-    <rect width="120" height="44" rx="6" fill="url(#accent)" opacity="0.08"/>
-    <rect width="120" height="44" rx="6" fill="none" stroke="url(#accent)" stroke-width="2" opacity="0.5"/>
-    <rect x="14" y="14" width="64" height="4" rx="2" fill="url(#accent)" opacity="0.4"/>
-    <rect x="14" y="26" width="48" height="4" rx="2" fill="url(#accent)" opacity="0.25"/>
-  </g>
+  <!-- Fragment 2 (center) -->
+  <rect x="328" y="196" width="112" height="68" rx="16"
+    fill="#6366f1"/>
 
   <!-- Fragment 3 (bottom) -->
-  <g transform="translate(290, 212)">
-    <rect width="120" height="44" rx="6" fill="url(#accent)" opacity="0.08"/>
-    <rect width="120" height="44" rx="6" fill="none" stroke="url(#accent)" stroke-width="2" opacity="0.5"/>
-    <rect x="14" y="14" width="70" height="4" rx="2" fill="url(#accent)" opacity="0.4"/>
-    <rect x="14" y="26" width="50" height="4" rx="2" fill="url(#accent)" opacity="0.25"/>
-  </g>
+  <rect x="328" y="284" width="112" height="68" rx="16"
+    fill="#4f46e5"/>
 
-  <!-- "docprep" text -->
-  <text x="256" y="410" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="700" font-size="42" fill="#e2e8f0" letter-spacing="2" opacity="0.9">docprep</text>
+  <!-- Subtle line accents on fragments -->
+  <g opacity="0.4">
+    <rect x="350" y="134" width="48" height="4" rx="2" fill="#fff"/>
+    <rect x="350" y="146" width="32" height="4" rx="2" fill="#fff"/>
+    <rect x="350" y="222" width="52" height="4" rx="2" fill="#fff"/>
+    <rect x="350" y="234" width="36" height="4" rx="2" fill="#fff"/>
+    <rect x="350" y="310" width="44" height="4" rx="2" fill="#fff"/>
+    <rect x="350" y="322" width="28" height="4" rx="2" fill="#fff"/>
+  </g>
 </svg>

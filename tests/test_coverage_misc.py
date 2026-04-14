@@ -54,7 +54,9 @@ def test_resolve_source_from_config(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert "Ingested" in captured.out
 
 
-def test_resolve_source_no_source_raises(tmp_path: Path, capsys) -> None:
+def test_resolve_source_no_source_raises(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """When no source is provided and config has none, should report error."""
     config_path = tmp_path / "docprep.toml"
     _ = config_path.write_text(

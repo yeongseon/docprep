@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 import importlib
 from pathlib import Path
 import time
+from typing import cast
 import uuid
 
 import pytest
 
-from docprep.config import load_config
+from docprep.config import TokenChunkerConfig, load_config
 from docprep.exceptions import ConfigError, IngestError, ParseError
 from docprep.ingest import Ingestor, _parse_and_chunk
 from docprep.loaders.types import LoadedSource
@@ -16,6 +17,9 @@ from docprep.models.domain import Document, DocumentError, ErrorMode, PipelineSt
 from docprep.parsers.html import HtmlParser, _HtmlToMarkdownParser
 from docprep.parsers.rst import RstParser
 import docprep.registry as registry
+
+PARSER_GROUP = cast(str, getattr(registry, "PARSER_GROUP", "docprep.parsers"))
+ADAPTER_GROUP = cast(str, getattr(registry, "ADAPTER_GROUP", "docprep.adapters"))
 
 ingest_module = importlib.import_module("docprep.ingest")
 
@@ -160,20 +164,20 @@ def test_registry_private_and_plugin_paths(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(ValueError, match="Invalid object path"):
         _ = registry._load_object_path("not-a-path")
 
-    assert "markdown" in registry._builtin_components(registry.PARSER_GROUP)
-    assert registry._builtin_components(registry.ADAPTER_GROUP) == {}
+    assert "markdown" in registry._builtin_components(PARSER_GROUP)
+    assert registry._builtin_components(ADAPTER_GROUP) == {}
 
     monkeypatch.setattr(
         registry,
         "discover_entry_points",
-        lambda group: {"adapter": object()} if group == registry.ADAPTER_GROUP else {},
+        lambda group: {"adapter": object()} if group == ADAPTER_GROUP else {},
     )
     assert "adapter" in registry.get_all_adapters()
 
 
 def test_registry_whitespace_token_counter_branch() -> None:
     chunker = registry.build_chunker(
-        registry.TokenChunkerConfig(max_tokens=2, overlap_tokens=1, tokenizer="whitespace")
+        TokenChunkerConfig(max_tokens=2, overlap_tokens=1, tokenizer="whitespace")
     )
     doc = Document(
         id=uuid.uuid4(),
@@ -230,7 +234,7 @@ def test_ingestor_parallel_future_exception_path(monkeypatch: pytest.MonkeyPatch
 
     def _patched_parse_and_chunk(
         index: int, loaded_source: LoadedSource, parser: object, chunkers: object
-    ):
+    ) -> object:
         del parser
         del chunkers
         if loaded_source.source_uri == "docs/fail.md":
@@ -244,7 +248,7 @@ def test_ingestor_parallel_future_exception_path(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(ingest_module, "_parse_and_chunk", _patched_parse_and_chunk)
 
-    result = Ingestor(loader=Loader(), parser=object(), chunkers=[]).run("ignored", workers=2)
+    result = Ingestor(loader=Loader(), parser=None, chunkers=[]).run("ignored", workers=2)
     assert result.processed_count == 1
     assert result.failed_count == 1
     assert result.failed_source_uris == ("docs/fail.md",)
@@ -263,7 +267,7 @@ def test_ingestor_fail_fast_cancels_pending_futures_branch(monkeypatch: pytest.M
 
     def _patched_parse_and_chunk(
         index: int, loaded_source: LoadedSource, parser: object, chunkers: object
-    ):
+    ) -> object:
         del parser
         del chunkers
         if index == 0:
@@ -289,7 +293,7 @@ def test_ingestor_fail_fast_cancels_pending_futures_branch(monkeypatch: pytest.M
             chunk_elapsed_ms=0.0,
         )
 
-    def _first_only(futures: Iterable[object]):
+    def _first_only(futures: Iterable[object]) -> Iterator[object]:
         future_list = list(futures)
         if future_list:
             yield future_list[0]
@@ -300,7 +304,7 @@ def test_ingestor_fail_fast_cancels_pending_futures_branch(monkeypatch: pytest.M
     with pytest.raises(IngestError, match="parse failed for docs/fail-first.md"):
         _ = Ingestor(
             loader=Loader(),
-            parser=object(),
+            parser=None,
             chunkers=[],
             error_mode=ErrorMode.FAIL_FAST,
         ).run("ignored", workers=2)

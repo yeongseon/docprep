@@ -77,7 +77,7 @@ class SizeChunker:
                 base_text = text[chunk_range.start : chunk_range.end]
                 fragment = base_text
                 if self._overlap_chars > 0 and previous_base_text:
-                    overlap = previous_base_text[-self._overlap_chars :]
+                    overlap = previous_base_text[-self._overlap_chars :].lstrip()
                     if overlap and base_text:
                         joiner = ""
                         if (
