@@ -111,10 +111,29 @@ with open("records.jsonl", "w") as f:
     print(f"Exported {count} records")
 ```
 
-Each line is a JSON object with UUID fields serialized as strings:
+Each line is a JSON object with UUID fields serialized as strings. Here is a complete example:
 
 ```json
-{"id": "a1b2c3d4-...", "document_id": "e5f6g7h8-...", "text": "...", "content_hash": "abc123", ...}
+{
+  "id": "7a3f2b91-c8e4-5d16-a0b3-9e8f7c6d5a42",
+  "document_id": "e1d2c3b4-a5f6-5789-b012-3c4d5e6f7a8b",
+  "section_id": "f9e8d7c6-b5a4-5321-9876-5f4e3d2c1b0a",
+  "chunk_anchor": "installation:3f8a1b2c",
+  "section_anchor": "installation",
+  "text": "Getting Started\n\nInstallation\n\nInstall docprep via pip:\n\npip install docprep\n\nRequires Python 3.10 or later.",
+  "content_hash": "a1b2c3d4e5f6",
+  "char_count": 112,
+  "source_uri": "file:docs/getting-started.md",
+  "title": "Getting Started",
+  "section_path": ["Getting Started", "Installation"],
+  "schema_version": 1,
+  "pipeline_version": "0.1.1",
+  "created_at": "2025-04-12T10:30:00Z",
+  "user_metadata": {
+    "author": "docprep team",
+    "category": "setup"
+  }
+}
 ```
 
 ### CLI

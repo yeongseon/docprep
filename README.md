@@ -54,6 +54,35 @@ docprep produces the same chunk IDs for the same input, every time. When documen
 
 > **Default behavior**: `ingest("docs/")` uses the FileSystem loader, which picks up `.md`, `.txt`, `.html`, `.htm`, and `.rst` files. For Markdown-only ingestion, set `loader.type = "markdown"` in `docprep.toml`.
 
+## What Goes Into Your Vector DB
+
+Each chunk becomes a `VectorRecordV1` record with full provenance — here's what one looks like:
+
+```json
+{
+  "id": "7a3f2b91-c8e4-5d16-a0b3-9e8f7c6d5a42",
+  "document_id": "e1d2c3b4-a5f6-5789-b012-3c4d5e6f7a8b",
+  "section_id": "f9e8d7c6-b5a4-5321-9876-5f4e3d2c1b0a",
+  "chunk_anchor": "installation:3f8a1b2c",
+  "section_anchor": "installation",
+  "text": "Getting Started\n\nInstallation\n\nInstall docprep via pip:\n\npip install docprep\n\nRequires Python 3.10 or later.",
+  "content_hash": "a1b2c3d4e5f6",
+  "char_count": 112,
+  "source_uri": "file:docs/getting-started.md",
+  "title": "Getting Started",
+  "section_path": ["Getting Started", "Installation"],
+  "schema_version": 1,
+  "pipeline_version": "0.1.1",
+  "created_at": "2025-04-12T10:30:00Z",
+  "user_metadata": {
+    "author": "docprep team",
+    "category": "setup"
+  }
+}
+```
+
+See the [Export Guide](docs/export.md) for the full schema reference, text prepend strategies, and changed-only export.
+
 ## Installation
 
 ```bash
