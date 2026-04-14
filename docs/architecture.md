@@ -196,7 +196,7 @@ Anchors are hierarchical, parent-scoped paths:
 
 ### Versioning
 
-- `IDENTITY_VERSION = 2` — bumped when ID generation logic changes
+- `IDENTITY_VERSION = 3` — bumped when ID generation logic changes
 - `SCHEMA_VERSION = 1` — bumped when database tables or export format changes
 
 See [ADR-0001: Identity Model](decisions/0001-identity-model.md) for the full design rationale.

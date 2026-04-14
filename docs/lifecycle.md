@@ -167,10 +167,11 @@ Scope is derived automatically from the source path:
 
 | Source | Derived Scope |
 |--------|--------------|
-| `docs/` (directory) | All URIs starting with `file:docs/` |
+| `docs/` (directory) | All URIs under the `docs/` root (`file:` prefix) |
 | `docs/guide.md` (file) | Exactly `file:docs/guide.md` |
 | Explicit `--scope` flag | Custom prefix |
 
+> **Note**: For directories, the scope is derived by resolving the directory path to its absolute location. The URI prefix reflects the relationship between the source root and the directory path. When `derive_scope()` is called on a directory, it sets `source_root = source_path.resolve()`, so URIs are relative to that resolved directory.
 Stale URI computation: `stale = stored_in_scope - seen_in_current_run`
 
 ## Checkpoints (Resumable Ingestion)
