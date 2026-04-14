@@ -1,0 +1,8 @@
+source = "sample_docs/"
+
+[[chunkers]]
+type = "heading"
+
+[[chunkers]]
+type = "size"
+max_chars = 1500
