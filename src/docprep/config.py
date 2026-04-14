@@ -55,7 +55,7 @@ class MarkdownLoaderConfig:
 @dataclass(frozen=True, kw_only=True, slots=True)
 class FileSystemLoaderConfig:
     type: Literal["filesystem"] = "filesystem"
-    include_globs: tuple[str, ...] = ("**/*.md", "**/*.txt", "**/*.html", "**/*.htm")
+    include_globs: tuple[str, ...] = ("**/*.md", "**/*.txt", "**/*.html", "**/*.htm", "**/*.rst")
     exclude_globs: tuple[str, ...] = ()
     hidden_policy: Literal["skip", "include"] = "skip"
     symlink_policy: Literal["follow", "skip"] = "follow"

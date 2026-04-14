@@ -29,3 +29,4 @@ Each ADR follows the template in [template.md](template.md): Status, Date, Conte
 | [0004](0004-plugin-registry.md) | Plugin Registry | Accepted |
 | [0005](0005-diff-then-sync.md) | Diff-then-Sync Pipeline | Accepted |
 | [0006](0006-export-contract.md) | Export Contract (VectorRecordV1) | Accepted |
+| [0007](0007-sqlalchemy-canonical-persistence.md) | SQLAlchemy as Canonical Persistence Layer | Accepted |

@@ -1,6 +1,6 @@
 # Roadmap
 
-docprep is currently in **Alpha**. The core pipeline — deterministic chunk IDs, incremental sync, changed-only export — is stable and tested (90%+ branch coverage). This roadmap outlines what's next.
+docprep is currently in **Alpha**. The core pipeline — deterministic chunk IDs, incremental sync, changed-only export — is stable and tested (95%+ branch coverage). This roadmap outlines what's next.
 
 ## Current Status (Alpha)
 
@@ -37,7 +37,7 @@ What works today:
 ## Medium-Term (Beta)
 
 - [ ] Streaming pipeline mode (process documents without loading all into memory)
-- [ ] Built-in progress reporting with callback hooks
+- [x] Built-in progress reporting with callback hooks
 - [ ] Schema migration tooling for sink database upgrades
 - [ ] Export format plugins (Parquet, CSV)
 - [ ] Documentation site hosted on GitHub Pages via MkDocs
@@ -47,7 +47,7 @@ What works today:
 docprep will move to Beta when:
 
 1. **Stability** — No breaking API changes for 3+ minor releases
-2. **Coverage** — 90%+ branch coverage maintained (currently met)
+2. **Coverage** — 95%+ branch coverage maintained (currently met)
 3. **Cross-platform** — CI passes on Ubuntu, macOS, and Windows
 4. **Documentation** — All public APIs documented with examples
 5. **Community** — At least one third-party plugin published

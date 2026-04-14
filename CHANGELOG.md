@@ -2,7 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [0.1.1] - 2026-04-14
+
+### Added
+
+- **ADR-0007**: SQLAlchemy as canonical persistence layer.
+- **DX improvements**: Quickstart example, CLI walkthrough script, adapter/plugin/error-handling/large-corpus/vector-store examples.
+- **End-to-end project examples**: `markitdown_to_jsonl`, `docling_to_postgres`, `github_docs_incremental_sync`.
+- **Progress reporting**: `ProgressCallback` protocol and `IngestProgressEvent` for pipeline observability.
+- **Comprehensive documentation**: Getting started, configuration, CLI reference, Python API, architecture, export, plugins, adapters, lifecycle, and performance guides.
 
 ### Changed
 
@@ -41,7 +49,7 @@ All notable changes to this project will be documented in this file.
 - **Streaming JSONL export**: `iter_vector_records()`, `iter_vector_records_v1()`, `write_jsonl()`, `ExportDelta`, `build_export_delta()`.
 - **CLI export command**: `docprep export` with `--changed-only` and `-o` flags for incremental JSONL export.
 - **Evaluation framework**: `EvalCorpus`, `EvalQuery`, `AnswerSpan` for chunking quality evaluation. `ChunkingMetrics`, `RetrievalMetrics`, `run_benchmark()` harness.
-- **Architecture Decision Records**: 6 ADRs documenting identity model, adapter pattern, chunking strategy, plugin registry, diff-then-sync, and export contract.
+- **Architecture Decision Records**: 7 ADRs documenting identity model, adapter pattern, chunking strategy, plugin registry, diff-then-sync, export contract, and SQLAlchemy persistence.
 - **Production documentation**: README with positioning, comparison table, format matrix, config reference, CLI reference, architecture overview, plugin system docs.
 - **Example configs**: `examples/configs/` — minimal, standard, and advanced `docprep.toml` configurations.
 - **Example scripts**: `examples/markdown_to_sqlite.py`, `examples/changed_only_export.py`.

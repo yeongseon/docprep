@@ -6,7 +6,7 @@ Thank you for your interest in contributing to docprep! This guide covers everyt
 
 ### Prerequisites
 
-- Python 3.11 or later
+- Python 3.10 or later
 - Git
 - Make (optional, but recommended)
 
@@ -172,7 +172,7 @@ make cov
 
 ### Test Coverage
 
-Coverage threshold is **90%**. Check coverage with:
+Coverage threshold is **95%**. Check coverage with:
 
 ```bash
 make cov

@@ -55,7 +55,7 @@ Controls how source files are discovered and read.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `include_globs` | list[string] | `["**/*.md", "**/*.txt", "**/*.html", "**/*.htm"]` | Glob patterns to include |
+| `include_globs` | list[string] | `["**/*.md", "**/*.txt", "**/*.html", "**/*.htm", "**/*.rst"]` | Glob patterns to include |
 | `exclude_globs` | list[string] | `[]` | Glob patterns to exclude |
 | `hidden_policy` | string | `"skip"` | Hidden file handling: `"skip"` or `"include"` |
 | `symlink_policy` | string | `"follow"` | Symlink handling: `"follow"` or `"skip"` |

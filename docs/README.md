@@ -33,6 +33,7 @@ Architecture Decision Records (ADRs) document key design choices:
 | [0004 — Plugin Registry](decisions/0004-plugin-registry.md) | Entry-point discovery via `importlib.metadata` |
 | [0005 — Diff-Then-Sync](decisions/0005-diff-then-sync.md) | Structural diff for incremental updates |
 | [0006 — Export Contract](decisions/0006-export-contract.md) | VectorRecordV1 with mandatory provenance |
+| [0007 — SQLAlchemy Persistence](decisions/0007-sqlalchemy-canonical-persistence.md) | SQLAlchemy as canonical persistence layer |
 
 ## Examples
 
@@ -56,6 +57,9 @@ Ready-to-run examples are in the [`examples/`](../examples/) directory:
 | [`error_handling.py`](../examples/error_handling.py) | Error modes, progress callbacks, exception hierarchy |
 | [`large_corpus.py`](../examples/large_corpus.py) | Parallel ingestion, checkpoints, streaming export |
 | [`sample_docs/`](../examples/sample_docs/) | Sample Markdown files used by examples |
+| [`markitdown_to_jsonl/`](../examples/markitdown_to_jsonl/) | End-to-end project: MarkItDown adapter → JSONL export |
+| [`docling_to_postgres/`](../examples/docling_to_postgres/) | End-to-end project: Docling adapter → PostgreSQL sink |
+| [`github_docs_incremental_sync/`](../examples/github_docs_incremental_sync/) | End-to-end project: GitHub docs incremental sync pipeline |
 
 ## Contributing
 

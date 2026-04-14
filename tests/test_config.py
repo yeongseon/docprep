@@ -34,7 +34,7 @@ def test_config_dataclass_defaults_are_expected() -> None:
     assert MarkdownLoaderConfig() == MarkdownLoaderConfig(type="markdown", glob_pattern="**/*.md")
     assert FileSystemLoaderConfig() == FileSystemLoaderConfig(
         type="filesystem",
-        include_globs=("**/*.md", "**/*.txt", "**/*.html", "**/*.htm"),
+        include_globs=("**/*.md", "**/*.txt", "**/*.html", "**/*.htm", "**/*.rst"),
         exclude_globs=(),
         hidden_policy="skip",
         symlink_policy="follow",
