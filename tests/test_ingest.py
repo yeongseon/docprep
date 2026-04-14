@@ -87,6 +87,9 @@ class RecordingSink:
     def record_run(self, manifest: RunManifest) -> None:
         self.manifests = self.manifests + (manifest,)
 
+    def get_documents_by_uris(self, source_uris: Sequence[str]) -> dict[str, Document]:
+        return {}
+
 
 class SelectivelyFailingSink:
     def __init__(self, *, fail_uris: set[str]) -> None:
@@ -107,6 +110,9 @@ class SelectivelyFailingSink:
         return SinkUpsertResult(
             updated_source_uris=tuple(doc.source_uri for doc in documents),
         )
+
+    def get_documents_by_uris(self, source_uris: Sequence[str]) -> dict[str, Document]:
+        return {}
 
 
 def _loaded_source(*, source_uri: str, raw_text: str = "# Title\n\nBody\n") -> LoadedSource:
@@ -528,6 +534,9 @@ def test_ingestor_resume_after_interrupted_run(tmp_path: Path) -> None:
             return SinkUpsertResult(
                 updated_source_uris=tuple(doc.source_uri for doc in documents),
             )
+
+        def get_documents_by_uris(self, source_uris: Sequence[str]) -> dict[str, Document]:
+            return {}
 
     fail_sink = FailSecondSink()
     with pytest.raises(IngestError, match="Persist failed for 2 document"):
@@ -951,6 +960,9 @@ def test_ingestor_batch_atomicity_with_sqlalchemy(tmp_path: Path) -> None:
 
         def record_run(self, manifest: RunManifest) -> None:
             self._delegate.record_run(manifest)
+
+        def get_documents_by_uris(self, source_uris: Sequence[str]) -> dict[str, Document]:
+            return {}
 
     result = Ingestor(
         loader=SingleLoader(),
@@ -1387,6 +1399,9 @@ def test_sink_failure_emits_run_failed_progress_event() -> None:
             del documents
             del run_id
             raise RuntimeError("sink boom")
+
+        def get_documents_by_uris(self, source_uris: Sequence[str]) -> dict[str, Document]:
+            return {}
 
     with pytest.raises(IngestError, match="Persist failed for 1 document"):
         Ingestor(

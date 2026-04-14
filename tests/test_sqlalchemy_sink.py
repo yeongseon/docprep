@@ -181,12 +181,12 @@ def test_upsert_retries_on_integrity_error() -> None:
     original_begin = Session.begin
     call_count = 0
 
-    def flaky_begin(session: Session, *args: object, **kwargs: object):
+    def flaky_begin(session: Session, *args: object, **kwargs: object) -> object:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise IntegrityError("simulated upsert", params={}, orig=Exception("race"))
-        return original_begin(session, *args, **kwargs)
+        return original_begin(session, *args, **kwargs)  # type: ignore[arg-type]
 
     with patch.object(Session, "begin", autospec=True, side_effect=flaky_begin):
         result = sink.upsert([document])
