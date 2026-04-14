@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import time
 from typing import cast
 import uuid
 
 from sqlalchemy import Engine, delete, func, select, text, update
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from ..exceptions import MetadataError, SinkError
@@ -46,6 +47,8 @@ from .orm import (
     row_to_section,
     run_manifest_to_row,
 )
+
+_MAX_UPSERT_RETRIES = 3
 
 
 @dataclass(kw_only=True, slots=True)
@@ -331,56 +334,78 @@ class SQLAlchemySink:
         skipped: list[str] = []
         updated: list[str] = []
 
-        try:
-            with Session(self._engine) as session, session.begin():
-                for doc in documents:
-                    existing = session.execute(
-                        select(DocumentRow).where(DocumentRow.source_uri == doc.source_uri)
-                    ).scalar_one_or_none()
+        for attempt in range(1, _MAX_UPSERT_RETRIES + 1):
+            skipped.clear()
+            updated.clear()
+            try:
+                with Session(self._engine) as session:
+                    try:
+                        with session.begin():
+                            for doc in documents:
+                                existing = session.execute(
+                                    select(DocumentRow).where(
+                                        DocumentRow.source_uri == doc.source_uri
+                                    )
+                                ).scalar_one_or_none()
 
-                    if (
-                        existing
-                        and existing.source_checksum == doc.source_checksum
-                        and existing.identity_version == doc.identity_version
-                    ):
-                        skipped.append(doc.source_uri)
-                        continue
+                                if (
+                                    existing
+                                    and existing.source_checksum == doc.source_checksum
+                                    and existing.identity_version == doc.identity_version
+                                ):
+                                    skipped.append(doc.source_uri)
+                                    continue
 
-                    if existing:
-                        session.execute(delete(ChunkRow).where(ChunkRow.document_id == existing.id))
-                        session.execute(
-                            delete(SectionRow).where(SectionRow.document_id == existing.id)
-                        )
-                        session.delete(existing)
-                        session.flush()
+                                if existing:
+                                    session.execute(
+                                        delete(ChunkRow).where(ChunkRow.document_id == existing.id)
+                                    )
+                                    session.execute(
+                                        delete(SectionRow).where(
+                                            SectionRow.document_id == existing.id
+                                        )
+                                    )
+                                    session.delete(existing)
+                                    session.flush()
 
-                    session.execute(
-                        update(DocumentRevisionRow)
-                        .where(DocumentRevisionRow.document_id == str(doc.id))
-                        .where(DocumentRevisionRow.is_current.is_(True))
-                        .values(is_current=False)
+                                session.execute(
+                                    update(DocumentRevisionRow)
+                                    .where(DocumentRevisionRow.document_id == str(doc.id))
+                                    .where(DocumentRevisionRow.is_current.is_(True))
+                                    .values(is_current=False)
+                                )
+                                latest_revision_number = session.execute(
+                                    select(func.max(DocumentRevisionRow.revision_number)).where(
+                                        DocumentRevisionRow.document_id == str(doc.id)
+                                    )
+                                ).scalar_one()
+                                next_revision_number = (latest_revision_number or 0) + 1
+                                revision = revision_from_document(
+                                    doc,
+                                    revision_number=next_revision_number,
+                                    run_id=run_id,
+                                    timestamp=datetime.now(timezone.utc).isoformat(),
+                                )
+                                row = domain_to_row(doc)
+                                session.add(row)
+                                session.add(revision)
+                                updated.append(doc.source_uri)
+                    except IntegrityError:
+                        session.rollback()
+                        raise
+                break
+            except IntegrityError:
+                if attempt == _MAX_UPSERT_RETRIES:
+                    raise SinkError(
+                        f"Failed to upsert documents after {_MAX_UPSERT_RETRIES} retries "
+                        "due to concurrent modifications"
                     )
-                    latest_revision_number = session.execute(
-                        select(func.max(DocumentRevisionRow.revision_number)).where(
-                            DocumentRevisionRow.document_id == str(doc.id)
-                        )
-                    ).scalar_one()
-                    next_revision_number = (latest_revision_number or 0) + 1
-                    revision = revision_from_document(
-                        doc,
-                        revision_number=next_revision_number,
-                        run_id=run_id,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                    )
-                    row = domain_to_row(doc)
-                    session.add(row)
-                    session.add(revision)
-                    updated.append(doc.source_uri)
-
-        except (SinkError, MetadataError):
-            raise
-        except Exception as exc:
-            raise SinkError(f"Failed to upsert documents: {exc}") from exc
+                time.sleep(0.05 * attempt)
+                continue
+            except (SinkError, MetadataError):
+                raise
+            except Exception as exc:
+                raise SinkError(f"Failed to upsert documents: {exc}") from exc
 
         return SinkUpsertResult(
             skipped_source_uris=tuple(skipped),

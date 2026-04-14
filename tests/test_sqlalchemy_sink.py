@@ -168,6 +168,36 @@ def test_upsert_same_checksum_different_identity_version_triggers_update() -> No
         assert revision_rows[1].revision_number == 2
 
 
+def test_upsert_retries_on_integrity_error() -> None:
+    """Verify upsert retries on IntegrityError and succeeds on subsequent attempt."""
+    from unittest.mock import patch
+
+    from sqlalchemy.exc import IntegrityError
+
+    engine = create_engine("sqlite://")
+    sink = SQLAlchemySink(engine=engine)
+    document = _document()
+
+    original_begin = Session.begin
+    call_count = 0
+
+    def flaky_begin(session: Session, *args: object, **kwargs: object):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise IntegrityError("simulated upsert", params={}, orig=Exception("race"))
+        return original_begin(session, *args, **kwargs)
+
+    with patch.object(Session, "begin", autospec=True, side_effect=flaky_begin):
+        result = sink.upsert([document])
+
+    assert call_count == 2
+    assert result.skipped_source_uris == ()
+    assert result.updated_source_uris == (document.source_uri,)
+    with Session(engine) as session:
+        assert session.execute(select(DocumentRow)).scalars().all()
+
+
 def test_stats_returns_correct_counts() -> None:
     engine = create_engine("sqlite://")
     sink = SQLAlchemySink(engine=engine)
