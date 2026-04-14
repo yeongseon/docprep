@@ -147,6 +147,8 @@ The **Sink** persists documents to a database.
 - Run manifests recording which sources were seen per ingestion run
 - Upsert results classifying each document as updated or skipped (unchanged)
 
+SQLAlchemy is the canonical persistence layer by design — it provides the relational foundation for revision tracking and incremental sync. Vector database integration happens at the export layer, not the sink layer. See [ADR-0007](decisions/0007-sqlalchemy-canonical-persistence.md) for the full rationale.
+
 ### 5. Diff
 
 The **Diff Engine** compares two versions of a document by their section and chunk anchors + content hashes.
