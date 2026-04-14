@@ -6,6 +6,7 @@ from dataclasses import replace
 import re
 import uuid
 
+from docprep.chunkers._markdown import _fence_spans, _line_spans
 from docprep.exceptions import ChunkError
 from docprep.ids import (
     ROOT_ANCHOR,
@@ -44,10 +45,15 @@ class HeadingChunker:
 
     def _split_by_headings(self, body: str) -> list[tuple[int, str | None, str]]:
         """Return list of (heading_level, heading_text | None, content_markdown)."""
+        # Compute fenced code block spans to exclude
+        line_spans = _line_spans(body)
+        fenced = _fence_spans(line_spans, text_len=len(body))
         parts: list[tuple[int, str | None, str]] = []
         last_end = 0
-
         for match in _HEADING_RE.finditer(body):
+            # Skip headings inside fenced code blocks
+            if any(start <= match.start() < end for start, end in fenced):
+                continue
             pre_content = body[last_end : match.start()].strip()
             if pre_content or not parts:
                 if pre_content and not parts:

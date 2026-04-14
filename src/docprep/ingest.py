@@ -460,9 +460,6 @@ class Ingestor:
                     )
                 )
                 documents.append(doc)
-                if checkpoint is not None:
-                    checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
-                    checkpoint.save(run_id_text)
             parse_elapsed_total = (time.perf_counter() - parse_start) * 1000 - chunk_elapsed_total
         else:
             sources_to_process: list[tuple[int, LoadedSource]] = []
@@ -680,12 +677,6 @@ class Ingestor:
                     )
                 )
                 documents.append(result.document)
-                if checkpoint is not None:
-                    checkpoint.mark_completed(
-                        result.document.source_uri,
-                        result.document.source_checksum,
-                    )
-                    checkpoint.save(run_id_text)
 
         parse_failed_uris = [
             error.source_uri for error in errors if error.stage == PipelineStage.PARSE
@@ -739,6 +730,12 @@ class Ingestor:
         sink_name: str | None = None
         sink_report: IngestStageReport | None = None
         if self._sink is None:
+            # No sink configured — checkpoint all parsed documents since there's
+            # nothing to persist (can't fail).
+            if checkpoint is not None and documents:
+                for doc in documents:
+                    checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
+                checkpoint.save(run_id_text)
             return sink_result, persisted, sink_name, sink_report
 
         sink_start = time.perf_counter()
@@ -778,6 +775,12 @@ class Ingestor:
                     )
                 )
             upsert_succeeded = True
+            # Checkpoint after successful persist so unpersisted docs are
+            # re-processed on resume (fixes #69).
+            if checkpoint is not None:
+                for doc in documents:
+                    checkpoint.mark_completed(doc.source_uri, doc.source_checksum)
+                checkpoint.save(run_id_text)
         except Exception as exc:
             for doc in documents:
                 error = DocumentError(

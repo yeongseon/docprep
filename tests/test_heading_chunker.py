@@ -95,3 +95,34 @@ def test_no_headings_creates_single_root_section() -> None:
     assert len(chunked.sections) == 1
     assert chunked.sections[0].heading is None
     assert chunked.sections[0].content_markdown == "Alpha\nBeta"
+
+
+def test_heading_chunker_ignores_fenced_code_backticks() -> None:
+    """Headings inside backtick-fenced code blocks must not create sections (fixes #70)."""
+    body = (
+        "# Real heading\n\n"
+        "Some content.\n\n"
+        "```python\n"
+        "# This is NOT a heading\n"
+        "## Also not a heading\n"
+        "import os\n"
+        "```\n\n"
+        "# Another real heading\n\n"
+        "More content."
+    )
+    document = _document(body)
+    chunked = HeadingChunker().chunk(document)
+
+    assert len(chunked.sections) == 2
+    assert chunked.sections[0].heading == "Real heading"
+    assert chunked.sections[1].heading == "Another real heading"
+
+
+def test_heading_chunker_ignores_tilde_fenced_code() -> None:
+    """Headings inside tilde-fenced code blocks must not create sections."""
+    body = "# Title\n\n~~~\n# comment in tilde fence\n~~~\n"
+    document = _document(body)
+    chunked = HeadingChunker().chunk(document)
+
+    assert len(chunked.sections) == 1
+    assert chunked.sections[0].heading == "Title"

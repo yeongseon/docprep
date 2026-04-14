@@ -475,9 +475,8 @@ def test_ingestor_resume_after_interrupted_run(tmp_path: Path) -> None:
             error_mode=ErrorMode.FAIL_FAST,
         ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
 
-    # Resume: both docs were checkpointed during parse stage, so both
-    # are skipped on resume.  The sink (which now succeeds) receives no
-    # documents because there are none left to process.
+    # Resume: checkpoint is now written AFTER persist, so documents that
+    # failed to persist are NOT checkpointed and are re-processed on resume.
     second_run = Ingestor(
         loader=MultiLoader(),
         parser=PassthroughParser(),
@@ -485,11 +484,8 @@ def test_ingestor_resume_after_interrupted_run(tmp_path: Path) -> None:
         sink=fail_sink,
     ).run("ignored", resume=True, checkpoint_path=checkpoint_path)
 
-    assert second_run.skipped_source_uris == (
-        first_source.source_uri,
-        second_source.source_uri,
-    )
-    assert second_run.processed_count == 0
+    assert second_run.processed_count == 2
+    assert second_run.skipped_source_uris == ()
 
 
 def test_ingestor_workers_with_errors_continue(tmp_path: Path) -> None:

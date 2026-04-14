@@ -94,3 +94,16 @@ def test_scope_changes_between_runs_change_stale_candidates() -> None:
 
     assert api_stale == {"file:docs/api/old.md"}
     assert reference_stale == {"file:docs/reference/keep.md"}
+
+
+def test_derive_scope_directory_without_source_root_matches_loader(tmp_path: Path) -> None:
+    """When no source_root is given for a directory, scope should use the directory
+    itself as root — consistent with FileSystemLoader which uses path.resolve().
+    This produces scope 'file:' which matches all URIs from that directory."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+
+    scope = derive_scope(docs)
+
+    # Scope is 'file:' because the directory is its own root (same as loader)
+    assert scope == SourceScope(prefixes=("file:",), explicit=False)
