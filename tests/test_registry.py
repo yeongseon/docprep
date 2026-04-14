@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from types import SimpleNamespace
+from typing import Callable, cast
+from unittest.mock import patch
 import uuid
+
+import pytest
 
 from docprep.chunkers.heading import HeadingChunker
 from docprep.chunkers.size import SizeChunker
@@ -165,3 +170,91 @@ def test_build_sink_returns_sqlalchemy_sink_with_created_engine() -> None:
 
     assert isinstance(sink, SQLAlchemySink)
     assert (stats.documents, stats.sections, stats.chunks) == (0, 0, 0)
+
+
+def test_builders_fall_back_to_plugin_constructors_with_config_kwargs() -> None:
+    class CustomLoader:
+        def __init__(self, *, glob_pattern: str, include_hidden: bool):
+            self.glob_pattern = glob_pattern
+            self.include_hidden = include_hidden
+
+    class CustomParser:
+        def __init__(self, *, mode: str):
+            self.mode = mode
+
+    class CustomChunker:
+        def __init__(self, *, max_sentences: int):
+            self.max_sentences = max_sentences
+
+    class CustomSink:
+        def __init__(self, *, endpoint: str, timeout_seconds: int):
+            self.endpoint = endpoint
+            self.timeout_seconds = timeout_seconds
+
+    def _discover(group: str) -> dict[str, object]:
+        if group == "docprep.loaders":
+            return {"my_custom_loader": CustomLoader}
+        if group == "docprep.parsers":
+            return {"my_custom_parser": CustomParser}
+        if group == "docprep.chunkers":
+            return {"my_custom_chunker": CustomChunker}
+        if group == "docprep.sinks":
+            return {"my_custom_sink": CustomSink}
+        return {}
+
+    with patch("docprep.registry.discover_entry_points", side_effect=_discover):
+        loader = build_loader(
+            cast(
+                object,
+                SimpleNamespace(
+                    type="my_custom_loader", glob_pattern="**/*.md", include_hidden=True
+                ),
+            )
+        )
+        parser = build_parser(cast(object, SimpleNamespace(type="my_custom_parser", mode="strict")))
+        chunker = build_chunker(
+            cast(object, SimpleNamespace(type="my_custom_chunker", max_sentences=3))
+        )
+        sink = build_sink(
+            cast(
+                object,
+                SimpleNamespace(
+                    type="my_custom_sink", endpoint="https://sink.local", timeout_seconds=10
+                ),
+            )
+        )
+
+    assert isinstance(loader, CustomLoader)
+    assert loader.glob_pattern == "**/*.md"
+    assert loader.include_hidden is True
+    assert isinstance(parser, CustomParser)
+    assert parser.mode == "strict"
+    assert isinstance(chunker, CustomChunker)
+    assert chunker.max_sentences == 3
+    assert isinstance(sink, CustomSink)
+    assert sink.endpoint == "https://sink.local"
+    assert sink.timeout_seconds == 10
+
+
+@dataclass(slots=True)
+class _UnknownComponentConfig:
+    type: str
+
+
+@pytest.mark.parametrize(
+    ("builder", "config", "group"),
+    [
+        (build_loader, _UnknownComponentConfig(type="missing_loader"), "docprep.loaders"),
+        (build_parser, _UnknownComponentConfig(type="missing_parser"), "docprep.parsers"),
+        (build_chunker, _UnknownComponentConfig(type="missing_chunker"), "docprep.chunkers"),
+        (build_sink, _UnknownComponentConfig(type="missing_sink"), "docprep.sinks"),
+    ],
+)
+def test_builders_raise_clear_error_when_component_is_missing(
+    builder: Callable[[object], object], config: _UnknownComponentConfig, group: str
+) -> None:
+    with patch("docprep.registry.discover_entry_points", return_value={}):
+        with pytest.raises(
+            LookupError, match=f"Unknown plugin '{config.type}' for group '{group}'"
+        ):
+            builder(cast(object, config))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import fields, is_dataclass
 import importlib
 from typing import cast
 
@@ -20,6 +21,7 @@ from .config import (
     MarkdownParserConfig,
     PlainTextParserConfig,
     RstParserConfig,
+    SizeChunkerConfig,
     SQLAlchemySinkConfig,
     TokenChunkerConfig,
 )
@@ -156,17 +158,59 @@ def resolve_component(group: str, name: str) -> object:
     )
 
 
-def build_loader(config: MarkdownLoaderConfig | FileSystemLoaderConfig) -> Loader:
-    if isinstance(config, MarkdownLoaderConfig):
+def _config_type_name(config: object) -> str:
+    type_name = getattr(config, "type", None)
+    if not isinstance(type_name, str):
+        raise TypeError(
+            "Component config must define a string 'type' attribute for registry resolution."
+        )
+    return type_name
+
+
+def _config_kwargs(config: object) -> dict[str, object]:
+    if is_dataclass(config):
+        values = {field.name: getattr(config, field.name) for field in fields(config)}
+    elif hasattr(config, "__dict__"):
+        values = dict(vars(config))
+    else:
+        values = {}
+    values.pop("type", None)
+    return values
+
+
+def _resolve_plugin(group: str, type_name: str, **kwargs: object) -> object:
+    plugins = discover_entry_points(group)
+    if type_name not in plugins:
+        available = ", ".join(sorted(plugins)) if plugins else "none"
+        raise LookupError(
+            f"Unknown plugin '{type_name}' for group '{group}'. "
+            + f"Available plugins: {available}."
+        )
+
+    factory = plugins[type_name]
+    if not callable(factory):
+        raise TypeError(
+            f"Plugin '{type_name}' for group '{group}' is not callable and cannot be constructed."
+        )
+    return factory(**kwargs)
+
+
+def build_loader(config: MarkdownLoaderConfig | FileSystemLoaderConfig | object) -> Loader:
+    type_name = _config_type_name(config)
+    if type_name == "markdown" and isinstance(config, MarkdownLoaderConfig):
         return MarkdownLoader(glob_pattern=config.glob_pattern)
-    return FileSystemLoader(
-        include_globs=config.include_globs,
-        exclude_globs=config.exclude_globs,
-        hidden_policy=config.hidden_policy,
-        symlink_policy=config.symlink_policy,
-        encoding=config.encoding,
-        encoding_errors=config.encoding_errors,
-    )
+    if type_name == "filesystem" and isinstance(config, FileSystemLoaderConfig):
+        return FileSystemLoader(
+            include_globs=config.include_globs,
+            exclude_globs=config.exclude_globs,
+            hidden_policy=config.hidden_policy,
+            symlink_policy=config.symlink_policy,
+            encoding=config.encoding,
+            encoding_errors=config.encoding_errors,
+        )
+
+    plugin = _resolve_plugin(LOADER_GROUP, type_name, **_config_kwargs(config))
+    return cast(Loader, plugin)
 
 
 def build_parser(
@@ -176,37 +220,48 @@ def build_parser(
         | HtmlParserConfig
         | RstParserConfig
         | AutoParserConfig
+        | object
     ),
 ) -> Parser:
-    if isinstance(config, MarkdownParserConfig):
+    type_name = _config_type_name(config)
+    if type_name == "markdown" and isinstance(config, MarkdownParserConfig):
         return MarkdownParser()
-    if isinstance(config, PlainTextParserConfig):
+    if type_name == "plaintext" and isinstance(config, PlainTextParserConfig):
         return PlainTextParser()
-    if isinstance(config, HtmlParserConfig):
-        return HtmlParser()
-    if isinstance(config, RstParserConfig):
+    if type_name == "html" and isinstance(config, HtmlParserConfig):
+        return cast(Parser, HtmlParser())
+    if type_name == "rst" and isinstance(config, RstParserConfig):
         return RstParser()
-    return MultiFormatParser()
+    if type_name == "auto" and isinstance(config, AutoParserConfig):
+        return MultiFormatParser()
+
+    plugin = _resolve_plugin(PARSER_GROUP, type_name, **_config_kwargs(config))
+    return cast(Parser, plugin)
 
 
-def build_chunker(config: ChunkerConfig) -> Chunker:
-    if isinstance(config, HeadingChunkerConfig):
+def build_chunker(config: ChunkerConfig | object) -> Chunker:
+    type_name = _config_type_name(config)
+    if type_name == "heading" and isinstance(config, HeadingChunkerConfig):
         return HeadingChunker()
-    if isinstance(config, TokenChunkerConfig):
+    if type_name == "token" and isinstance(config, TokenChunkerConfig):
         token_counter = _token_counter_from_name(config.tokenizer)
         return TokenChunker(
             max_tokens=config.max_tokens,
             overlap_tokens=config.overlap_tokens,
             token_counter=token_counter,
         )
-    return SizeChunker(
-        max_chars=config.max_chars,
-        overlap_chars=config.overlap_chars,
-        min_chars=config.min_chars,
-    )
+    if type_name == "size" and isinstance(config, SizeChunkerConfig):
+        return SizeChunker(
+            max_chars=config.max_chars,
+            overlap_chars=config.overlap_chars,
+            min_chars=config.min_chars,
+        )
+
+    plugin = _resolve_plugin(CHUNKER_GROUP, type_name, **_config_kwargs(config))
+    return cast(Chunker, plugin)
 
 
-def build_chunkers(configs: Sequence[ChunkerConfig]) -> tuple[Chunker, ...]:
+def build_chunkers(configs: Sequence[ChunkerConfig | object]) -> tuple[Chunker, ...]:
     return tuple(build_chunker(c) for c in configs)
 
 
@@ -216,9 +271,14 @@ def _token_counter_from_name(name: str) -> TokenCounter:
     return lambda text: len(text.split())
 
 
-def build_sink(config: SQLAlchemySinkConfig) -> Sink:
-    sqlalchemy_module = importlib.import_module("sqlalchemy")
-    create_engine = cast(Callable[[str], object], getattr(sqlalchemy_module, "create_engine"))
-    engine = create_engine(config.database_url)
-    sink_factory = cast(Callable[..., Sink], _load_object_path(BUILTIN_SINKS["sqlalchemy"]))
-    return sink_factory(engine=engine, create_tables=config.create_tables)
+def build_sink(config: SQLAlchemySinkConfig | object) -> Sink:
+    type_name = _config_type_name(config)
+    if type_name == "sqlalchemy" and isinstance(config, SQLAlchemySinkConfig):
+        sqlalchemy_module = importlib.import_module("sqlalchemy")
+        create_engine = cast(Callable[[str], object], getattr(sqlalchemy_module, "create_engine"))
+        engine = create_engine(config.database_url)
+        sink_factory = cast(Callable[..., Sink], _load_object_path(BUILTIN_SINKS["sqlalchemy"]))
+        return sink_factory(engine=engine, create_tables=config.create_tables)
+
+    plugin = _resolve_plugin(SINK_GROUP, type_name, **_config_kwargs(config))
+    return cast(Sink, plugin)
