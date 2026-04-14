@@ -107,3 +107,72 @@ def test_derive_scope_directory_without_source_root_matches_loader(tmp_path: Pat
 
     # Scope is 'file:' because the directory is its own root (same as loader)
     assert scope == SourceScope(prefixes=("file:",), explicit=False)
+
+
+def test_same_file_produces_same_uri_from_different_roots(tmp_path: Path) -> None:
+    """Same file produces deterministic URI regardless of invocation root."""
+    # Create a nested file structure
+    sub = tmp_path / "docs"
+    sub.mkdir()
+    f = sub / "guide.md"
+    f.write_text("# Guide\n\nHello world\n")
+
+    from docprep.ids import document_id
+    from docprep.loaders.filesystem import FileSystemLoader
+
+    loader = FileSystemLoader()
+
+    # Load from directory (source_root = sub)
+    dir_sources = list(loader.load(sub))
+    # Load from file directly (source_root = sub.parent)
+    file_sources = list(loader.load(f))
+
+    assert len(dir_sources) == 1
+    assert len(file_sources) == 1
+
+    # Both should resolve to the same source_uri (deterministic identity)
+    assert dir_sources[0].source_uri == file_sources[0].source_uri
+
+    # Document IDs derived from URIs must also match
+    assert document_id(dir_sources[0].source_uri) == document_id(file_sources[0].source_uri)
+
+
+def test_files_in_different_directories_produce_distinct_uris(tmp_path: Path) -> None:
+    """Files with the same name in different dirs produce distinct URIs.
+
+    When loading multiple files from a common parent directory, same-named
+    files in different subdirectories must produce distinct URIs.
+    """
+    # Create two subdirectories with identical filenames
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    (dir_a / "readme.md").write_text("# A\n\nContent A\n")
+    (dir_b / "readme.md").write_text("# B\n\nContent B\n")
+
+    from docprep.ids import document_id
+    from docprep.loaders.filesystem import FileSystemLoader
+
+    loader = FileSystemLoader()
+    # Load both files from the common parent directory
+    sources = list(loader.load(tmp_path))
+
+    assert len(sources) == 2, "Both readme.md files should be discovered"
+
+    # Find sources by path to verify URIs
+    source_a = next((s for s in sources if "a/readme.md" in s.source_path), None)
+    source_b = next((s for s in sources if "b/readme.md" in s.source_path), None)
+
+    assert source_a is not None, "readme.md in dir a should be found"
+    assert source_b is not None, "readme.md in dir b should be found"
+
+    # URIs must be distinct (no collision)
+    assert source_a.source_uri != source_b.source_uri, (
+        "Files in different directories must have distinct URIs"
+    )
+
+    # Document IDs (derived from URIs) must also be distinct
+    assert document_id(source_a.source_uri) != document_id(source_b.source_uri), (
+        "Document IDs must be distinct"
+    )
