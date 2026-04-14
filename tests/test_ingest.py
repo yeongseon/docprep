@@ -267,6 +267,70 @@ def test_ingestor_workers_parallel_produces_same_result(tmp_path: Path) -> None:
     assert result_seq.processed_count == result_par.processed_count
 
 
+def test_ingestor_workers_use_deep_copied_parser_and_chunkers(tmp_path: Path) -> None:
+    sources = [_loaded_source(source_uri=f"docs/{idx}.md") for idx in range(12)]
+
+    class MultiLoader:
+        def load(self, source: str | Path) -> list[LoadedSource]:
+            del source
+            return sources
+
+    class StatefulNonThreadSafeParser:
+        def __init__(self) -> None:
+            self._in_use = False
+            self.parse_calls = 0
+
+        def __deepcopy__(self, memo: dict[int, object]) -> StatefulNonThreadSafeParser:
+            del memo
+            return StatefulNonThreadSafeParser()
+
+        def parse(self, loaded_source: LoadedSource) -> Document:
+            if self._in_use:
+                raise RuntimeError("parser shared across threads")
+            self._in_use = True
+            try:
+                time.sleep(0.005)
+                self.parse_calls += 1
+                return _document_from_loaded_source(loaded_source)
+            finally:
+                self._in_use = False
+
+    class StatefulNonThreadSafeChunker:
+        def __init__(self) -> None:
+            self._in_use = False
+            self.chunk_calls = 0
+
+        def __deepcopy__(self, memo: dict[int, object]) -> StatefulNonThreadSafeChunker:
+            del memo
+            return StatefulNonThreadSafeChunker()
+
+        def chunk(self, document: Document) -> Document:
+            if self._in_use:
+                raise RuntimeError("chunker shared across threads")
+            self._in_use = True
+            try:
+                time.sleep(0.005)
+                self.chunk_calls += 1
+                return document
+            finally:
+                self._in_use = False
+
+    parser = StatefulNonThreadSafeParser()
+    chunker = StatefulNonThreadSafeChunker()
+
+    result = Ingestor(
+        loader=MultiLoader(),
+        parser=parser,
+        chunkers=[chunker],
+        error_mode=ErrorMode.FAIL_FAST,
+    ).run(tmp_path, workers=4)
+
+    assert result.failed_count == 0
+    assert result.processed_count == len(sources)
+    assert parser.parse_calls == 0
+    assert chunker.chunk_calls == 0
+
+
 def test_ingestor_resume_skips_unchanged(tmp_path: Path) -> None:
     first_source = _loaded_source(source_uri="docs/a.md")
     second_source = _loaded_source(source_uri="docs/b.md")

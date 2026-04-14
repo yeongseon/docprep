@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 import concurrent.futures
 from concurrent.futures import Future, ThreadPoolExecutor
+import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
@@ -491,8 +492,8 @@ class Ingestor:
                         _parse_and_chunk,
                         idx,
                         ls,
-                        self._parser,
-                        self._chunkers,
+                        copy.deepcopy(self._parser),
+                        copy.deepcopy(self._chunkers),
                     )
                     future_to_indexed_source[future] = (idx, ls)
                     pending_futures.add(future)
