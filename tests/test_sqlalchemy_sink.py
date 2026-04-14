@@ -423,3 +423,33 @@ def test_get_stored_uris_in_scope_filters_documents() -> None:
     in_scope = sink.get_stored_uris_in_scope(SourceScope(prefixes=("docs/",)))
 
     assert in_scope == {"docs/example.md", "docs/other.md"}
+
+
+def test_get_documents_by_uris_bulk_fetch() -> None:
+    engine = create_engine("sqlite://")
+    sink = SQLAlchemySink(engine=engine)
+    doc1 = _document()
+    doc2 = Document(
+        id=uuid.uuid4(),
+        source_uri="docs/other.md",
+        title="Other",
+        source_checksum="checksum-other",
+    )
+    _ = sink.upsert([doc1, doc2])
+
+    result = sink.get_documents_by_uris(["docs/example.md", "docs/other.md", "docs/nonexistent.md"])
+
+    assert "docs/example.md" in result
+    assert "docs/other.md" in result
+    assert "docs/nonexistent.md" not in result
+    assert result["docs/example.md"].source_uri == "docs/example.md"
+    assert result["docs/other.md"].source_uri == "docs/other.md"
+
+
+def test_get_documents_by_uris_empty_list() -> None:
+    engine = create_engine("sqlite://")
+    sink = SQLAlchemySink(engine=engine)
+
+    result = sink.get_documents_by_uris([])
+
+    assert result == {}

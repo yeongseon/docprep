@@ -104,7 +104,6 @@ def handle(args: argparse.Namespace) -> int:
 
             sink = _get_sink(args)
             current_docs = result.documents
-            current_by_uri = {document.source_uri: document for document in current_docs}
             stored_uris: set[str] = set()
             offset = 0
             page_size = 200
@@ -118,14 +117,18 @@ def handle(args: argparse.Namespace) -> int:
                     break
                 offset += page_size
 
+            current_uris = [document.source_uri for document in current_docs]
+            missing_uri_candidates = sorted(stored_uris - set(current_uris))
+            all_uris_to_fetch = current_uris + missing_uri_candidates
+            previous_docs = sink.get_documents_by_uris(all_uris_to_fetch)
+
             diffs = []
             for document in current_docs:
-                previous_document = sink.get_document(document.source_uri)
+                previous_document = previous_docs.get(document.source_uri)
                 diffs.append(compute_diff_from_documents(previous_document, document))
 
-            missing_uris = sorted(stored_uris - set(current_by_uri))
-            for source_uri in missing_uris:
-                previous_document = sink.get_document(source_uri)
+            for source_uri in missing_uri_candidates:
+                previous_document = previous_docs.get(source_uri)
                 if previous_document is None:
                     continue
                 empty_document = Document(

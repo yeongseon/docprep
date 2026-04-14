@@ -190,6 +190,22 @@ class SQLAlchemySink:
                 return None
             return cast(Document, row_to_domain(row))
 
+    def get_documents_by_uris(self, source_uris: Sequence[str]) -> dict[str, Document]:
+        """Bulk-fetch documents by source_uri list keyed by source_uri."""
+        if not source_uris:
+            return {}
+
+        result: dict[str, Document] = {}
+        with Session(self._engine) as session:
+            rows = (
+                session.execute(select(DocumentRow).where(DocumentRow.source_uri.in_(source_uris)))
+                .scalars()
+                .all()
+            )
+            for row in rows:
+                result[row.source_uri] = cast(Document, row_to_domain(row))
+        return result
+
     def list_documents(self, *, offset: int = 0, limit: int = 50) -> Page:
         """List documents with pagination."""
         with Session(self._engine) as session:
