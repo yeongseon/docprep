@@ -15,10 +15,10 @@ Deterministic chunk IDs and incremental sync for document ingestion.
 
 docprep is a document ingestion layer for RAG pipelines. It transforms source documents into structured chunks with **deterministic IDs**, **Markdown-aware boundaries**, and **incremental sync**. It sits between your documents and your vector store:
 
-```
-Source files → Loader → Parser → Chunker(s) → Sink → Export
-                                      │
-                                Diff Engine → Changed-only export
+```mermaid
+flowchart LR
+    A[Source files] --> B[Loader] --> C[Parser] --> D["Chunker(s)"] --> E[Sink] --> F[Export]
+    D --> G[Diff Engine] --> H[Changed-only export]
 ```
 
 docprep produces the same chunk IDs for the same input, every time. When documents change, it computes a structural diff and exports only the added, modified, or deleted chunks — so you re-embed only what changed.

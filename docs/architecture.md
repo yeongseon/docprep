@@ -4,35 +4,41 @@ This document describes docprep's internal architecture, pipeline flow, identity
 
 ## Pipeline Overview
 
-```
-Source Directory
-       │
-       ▼
-┌─────────────┐     ┌──────────┐     ┌───────────────┐     ┌──────────┐
-│   Loader    │────▶│  Parser  │────▶│  Chunker(s)   │────▶│   Sink   │
-│             │     │          │     │               │     │          │
-│ Glob files  │     │ Extract  │     │ 1. Heading    │     │ Upsert   │
-│ Read content│     │ structure│     │ 2. Token/Size │     │ Revision │
-│ Compute     │     │ Title    │     │               │     │ tracking │
-│ checksums   │     │ Metadata │     │ Assigns IDs   │     │          │
-└─────────────┘     └──────────┘     └───────────────┘     └──────────┘
-                                            │
-                                            ▼
-                                     ┌─────────────┐
-                                     │ Diff Engine │
-                                     │             │
-                                     │ Compare     │
-                                     │ revisions   │
-                                     └──────┬──────┘
-                                            │
-                                            ▼
-                                     ┌─────────────┐
-                                     │   Export    │
-                                     │             │
-                                     │ VectorRecord│
-                                     │ JSONL       │
-                                     │ Delta       │
-                                     └─────────────┘
+```mermaid
+flowchart TD
+    SRC[Source Directory] --> LOADER
+    subgraph LOADER[Loader]
+        L1[Glob files]
+        L2[Read content]
+        L3[Compute checksums]
+    end
+    LOADER --> PARSER
+    subgraph PARSER[Parser]
+        P1[Extract structure]
+        P2[Title]
+        P3[Metadata]
+    end
+    PARSER --> CHUNKER
+    subgraph CHUNKER["Chunker(s)"]
+        C1[1. Heading]
+        C2[2. Token / Size]
+        C3[Assigns IDs]
+    end
+    CHUNKER --> SINK
+    subgraph SINK[Sink]
+        S1[Upsert]
+        S2[Revision tracking]
+    end
+    CHUNKER --> DIFF
+    subgraph DIFF[Diff Engine]
+        D1[Compare revisions]
+    end
+    DIFF --> EXPORT
+    subgraph EXPORT[Export]
+        E1[VectorRecord]
+        E2[JSONL]
+        E3[Delta]
+    end
 ```
 
 ## Module Map

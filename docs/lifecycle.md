@@ -6,8 +6,9 @@ This guide explains how docprep handles documents throughout their lifecycle —
 
 Every ingestion run follows the same pipeline:
 
-```
-Source files → Loader → Parser → Chunker(s) → Sink → Checkpoint
+```mermaid
+flowchart LR
+    A[Source files] --> B[Loader] --> C[Parser] --> D["Chunker(s)"] --> E[Sink] --> F[Checkpoint]
 ```
 
 Each document produces:
@@ -227,21 +228,18 @@ This keeps the 10 most recent revisions per document and deletes older ones.
 
 ## Lifecycle Summary
 
+```mermaid
+flowchart LR
+    SRC[Source files] --> LOAD[Load] --> PARSE[Parse] --> CHUNK[Chunk] --> SINK[Sink]
+    LOAD --> INGEST["ingest → upsert (add/update)"]
+    LOAD --> DIFF["diff → compare with stored revision"]
+    LOAD --> EXPORT["export → JSONL (full or changed-only)"]
+    LOAD --> PRUNE["prune → delete stale documents"]
+    LOAD --> DELETE["delete → remove specific document"]
 ```
-                    ┌─── ingest ──→ upsert (add/update)
-                    │
-Source files ──→ Load ──→ Parse ──→ Chunk ──→ Sink
-                    │
-                    ├─── diff ───→ compare with stored revision
-                    │
-                    ├─── export ─→ JSONL (full or changed-only)
-                    │
-                    ├─── prune ──→ delete stale documents
-                    │
-                    └─── delete ─→ remove specific document
 
-No automatic deletion. Prune is always explicit.
-```
+!!! info
+    No automatic deletion. Prune is always explicit.
 
 ## Common Scenarios
 

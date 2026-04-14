@@ -23,10 +23,10 @@ pip install docprep[postgres]
 
 docprep is a document ingestion layer for RAG pipelines. It transforms source documents into structured chunks through a deterministic pipeline:
 
-```
-Source files → Loader → Parser → Chunker(s) → Sink → Export
-                                      |
-                                Diff Engine → Changed-only export
+```mermaid
+flowchart LR
+    A[Source files] --> B[Loader] --> C[Parser] --> D["Chunker(s)"] --> E[Sink] --> F[Export]
+    D --> G[Diff Engine] --> H[Changed-only export]
 ```
 
 1. **Loader** discovers and reads source files (Markdown by default; configure `loader.type = "filesystem"` and `parser.type = "auto"` for HTML, RST, plain text)

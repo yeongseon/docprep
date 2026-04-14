@@ -6,8 +6,9 @@ Adapters bridge external document processing tools (MarkItDown, Docling, Unstruc
 
 docprep's built-in parsers handle Markdown, plain text, HTML, and reStructuredText. For everything else — PDFs, DOCX, PPTX, spreadsheets — use an adapter:
 
-```
-External tool (PDF → Markdown) → Adapter → docprep pipeline
+```mermaid
+flowchart LR
+    A["External tool (PDF → Markdown)"] --> B[Adapter] --> C[docprep pipeline]
 ```
 
 This follows the **adapter-not-parser** design principle: docprep focuses on structural chunking, not format conversion. See [ADR-0002](decisions/0002-adapter-not-parser.md).
