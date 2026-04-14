@@ -63,7 +63,21 @@ docprep will move to Beta when:
 
 - **No built-in adapters.** docprep deliberately delegates format conversion to external tools (MarkItDown, Docling, Unstructured). See [Adapters](docs/adapters.md).
 - **Single-process only.** No distributed processing support yet.
-- **SQLAlchemy sink only.** Vector database sinks require third-party plugins.
+- **SQLAlchemy sink only.** Vector database sinks are intentionally third-party — see [ADR-0007](docs/decisions/0007-sqlalchemy-canonical-persistence.md) for the rationale.
+
+### What May Change Before Beta
+
+These areas are functional but not yet stabilized:
+
+| Area | Current State | What May Change | Impact |
+|------|--------------|-----------------|--------|
+| `docprep.toml` schema | Working, all options documented | Keys may be renamed or restructured | Re-edit config file |
+| Plugin entry-point contracts | Functional for all 4 component types | Protocol method signatures may evolve | Update third-party plugins |
+| Sink database schema | SQLite/PostgreSQL working | No migration tooling yet | Re-ingest to rebuild |
+| `VectorRecordV1` export | Stable, 15 fields documented | Future V2 would be additive, not breaking | No action needed |
+| CLI command surface | 9 commands available | Flags/options may change | Update scripts |
+
+Pin your docprep version (`docprep==0.1.1`) and test upgrades in a staging environment before production use.
 
 ## Contributing
 

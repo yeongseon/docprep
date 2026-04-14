@@ -175,6 +175,17 @@ docprep export docs/ --changed-only --db sqlite:///docs.db -o delta.jsonl
 
 Design decisions are documented as [Architecture Decision Records](docs/decisions/README.md).
 
+## Alpha Status: What May Change
+
+docprep is in **active development**. The core pipeline (deterministic IDs, incremental sync, changed-only export) is stable and tested at 95%+ coverage. It is safe to evaluate and prototype with, but be aware of these areas that may evolve:
+
+- **Config schema** — Keys and structure in `docprep.toml` may be renamed or reorganized in future releases. Pin your docprep version to avoid surprises.
+- **Plugin contracts** — The entry-point protocols for parsers, chunkers, sinks, and adapters are functional but not yet frozen. Third-party plugins may need minor updates between releases.
+- **Database schema** — No automated migration tooling exists yet. Upgrading docprep may require re-ingestion to rebuild the sink database. Migration tooling is planned for [Beta](ROADMAP.md#medium-term-beta).
+- **Export format** — `VectorRecordV1` is the current contract. A future `V2` would be additive, not a breaking replacement.
+
+See the [Roadmap](ROADMAP.md) for the full stability timeline and Beta entry criteria.
+
 ## Supported Parsers
 
 | Format | Extensions | Parser | Notes |
