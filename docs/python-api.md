@@ -61,7 +61,7 @@ chunk.document_id           # uuid.UUID
 chunk.section_id            # uuid.UUID
 chunk.order_index           # int — global position across all chunks
 chunk.section_chunk_index   # int — position within its section
-chunk.anchor                # str — section_anchor:content_hash
+chunk.anchor                # str — section_anchor:chunk_N (e.g. intro:chunk_0)
 chunk.content_hash          # str — truncated SHA-256
 chunk.content_text          # str — the actual chunk text
 chunk.char_start            # int — character offset in section

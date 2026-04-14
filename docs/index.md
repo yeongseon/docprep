@@ -28,7 +28,7 @@ Architecture Decision Records (ADRs) document key design choices:
 
 | ADR | Decision |
 |-----|----------|
-| [0001 — Identity Model](decisions/0001-identity-model.md) | Anchor-based stable IDs with content hash |
+| [0001 — Identity Model](decisions/0001-identity-model.md) | Anchor-based stable IDs with position-based chunk anchors |
 | [0002 — Adapter-Not-Parser](decisions/0002-adapter-not-parser.md) | External tools parse, docprep normalizes |
 | [0003 — Chunking Strategy](decisions/0003-chunking-strategy.md) | Markdown-aware boundaries, then token budgets |
 | [0004 — Plugin Registry](decisions/0004-plugin-registry.md) | Entry-point discovery via `importlib.metadata` |

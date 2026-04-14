@@ -129,7 +129,7 @@ The default pipeline is:
 
 During chunking, deterministic IDs are assigned:
 - Section anchors: hierarchical path-based (e.g. `intro/install`)
-- Chunk anchors: `section_anchor:content_hash`
+- Chunk anchors: `section_anchor:chunk_N` (position-based, e.g. `intro:chunk_0`)
 - UUIDs: `uuid5(namespace, "{doc_id}:section:{anchor}")` and `uuid5(namespace, "{doc_id}:chunk:{anchor}")`
 
 ### 4. Persist (Optional)
@@ -207,14 +207,14 @@ With `workers > 1`:
 - Files are loaded sequentially (I/O bound, usually fast)
 - Parse + chunk runs in a `ThreadPoolExecutor`
 - Results are re-ordered to match original load order
-- Sink upsert runs sequentially per document
+- Sink upsert receives the full batch of documents in a single call
 - Progress events fire in original order
 
 ### Thread Safety
 
 - Parsers and chunkers must be stateless or thread-safe
-- The sink receives documents one at a time (sequential)
-- Checkpoint writes are sequential per document
+- The sink receives the full document batch after all workers complete
+- Checkpoints are written at the parse stage (before persist)
 
 ## Resumable Ingestion
 
@@ -248,7 +248,7 @@ Key architectural decisions are documented as Architecture Decision Records in [
 
 | ADR | Decision |
 |-----|----------|
-| [0001](decisions/0001-identity-model.md) | Anchor-based stable IDs with content hash |
+| [0001](decisions/0001-identity-model.md) | Anchor-based stable IDs with position-based chunk anchors |
 | [0002](decisions/0002-adapter-not-parser.md) | External tools parse, docprep normalizes |
 | [0003](decisions/0003-chunking-strategy.md) | Markdown-aware boundaries, then token budgets |
 | [0004](decisions/0004-plugin-registry.md) | Entry-point discovery via `importlib.metadata` |

@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- **Identity model v3**: Chunk anchors switched from content-hash to position-based (`section_anchor:chunk_N`). Bumped `IDENTITY_VERSION` to 3.
+- **Default loader**: Switched from `MarkdownLoader` to `FileSystemLoader` (picks up `.md`, `.txt`, `.html`, `.htm`, `.rst`).
+- **Batch persist**: Sink `upsert()` now receives all documents in a single call instead of per-document loop.
+- **MarkdownLoader media_type**: Uses extension-based mapping from shared `MEDIA_TYPE_BY_SUFFIX`.
+- **SizeChunker overlap**: Whitespace-aware join matching `TokenChunker` behavior.
+
+### Fixed
+
+- `DEFAULT_CHUNKERS` docstring corrected from "token-size" to "character-budget" splitting.
+- Sync semantics documented: ingest is additive-only; use `prune` for deletion.
+
 ## [0.1.0] - 2026-04-12
 
 ### Added
